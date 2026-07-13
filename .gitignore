@@ -1,0 +1,9 @@
+# Godot 4+ editor data (regenerated on open)
+.godot/
+
+# Dev / marketing artifacts — kept local, never shipped
+*.zip
+*.mp4
+*.gif
+store-listing.md
+export_presets.cfg

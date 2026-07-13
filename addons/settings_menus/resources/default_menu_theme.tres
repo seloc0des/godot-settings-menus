@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="MenuTheme" load_steps=2 format=3 uid="uid://da5mg5mti62c1"]
+
+[ext_resource type="Script" uid="uid://ca5xkoaeirno6" path="res://addons/settings_menus/resources/menu_theme.gd" id="1_ak8bb"]
+
+[resource]
+script = ExtResource("1_ak8bb")
+game_subtitle = "Polished settings + menus, free."
+metadata/_custom_type_script = "uid://ca5xkoaeirno6"
