@@ -1,5 +1,7 @@
 # Settings + Menus
 
+> **New since 1.0.0:** a one-click **Setup** tab (main menu, pause menu, options screen, or all three), a movable settings file, and a self-test that cannot touch your real settings any more. Details in CHANGELOG.md.
+
 Free, polished main menu / pause / options / credits template for Godot 4.3+. Persistent settings, audio buses, resolution + window mode, key rebinding, accessibility (font scale, colorblind filter, reduce motion).
 
 Fully standalone and complete — no paid tier, no locked features. It pairs cleanly with the other CindieForge RPG systems if you use them, but never requires them.

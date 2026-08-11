@@ -106,7 +106,7 @@ func _reset() -> void:
 
 func _current_label() -> String:
 	if not InputMap.has_action(action):
-		return "—"
+		return "-"
 	var events := InputMap.action_get_events(action)
 	if events.is_empty():
 		return "Unbound"

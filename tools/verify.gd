@@ -5,11 +5,21 @@ extends Node
 
 var _passes := 0
 var _failures := 0
+var _log: Array = []  # [ [bool passed, String msg], ... ] — for the windowed report
+
+
+# This suite ships to buyers, so it must not touch their real settings — it
+# resets to defaults and rebinds keys, which would wipe saved volume/resolution/
+# keybinds. Redirect the whole thing at a scratch file first.
+const SANDBOX := "user://verify_settings.json"
 
 
 func _ready() -> void:
 	await get_tree().process_frame
 	print("--- settings / menus verify ---")
+	var real_before := _snapshot_real_settings()
+	if Settings:
+		Settings.save_file = SANDBOX
 	await _run_defaults_load()
 	await _run_set_and_persist()
 	await _run_audio_bus_missing_warns()
@@ -17,11 +27,39 @@ func _ready() -> void:
 	await _run_keybind_dedup()
 	await _run_keybind_conflict_detection()
 	await _run_ui_ignores_ui_actions()
+	_assert(_snapshot_real_settings() == real_before,
+		"Sandbox: the real %s was left untouched" % Settings.SAVE_FILE)
+	_cleanup_sandbox()
 	print("--- %d passed, %d failed ---" % [_passes, _failures])
-	get_tree().quit(0 if _failures == 0 else 1)
+	# Headless (CI/build) keeps the exit-code behavior. In a window (editor F6) show a
+	# visual PASS/FAIL banner instead — the load-and-look buyer QA scene.
+	if DisplayServer.get_name() == "headless":
+		get_tree().quit(0 if _failures == 0 else 1)
+	else:
+		# untyped on purpose: `:=` on load().new() is a Variant → parse-hang; class_name
+		# would need a project rescan to register. Plain dynamic dispatch dodges both.
+		var report = load("res://tools/acceptance_report.gd").new()
+		get_tree().root.add_child(report)
+		report.render(_passes, _failures, _log)
+
+
+# Absent and empty both read as "" — good enough, we only care whether the run
+# changed it.
+func _snapshot_real_settings() -> String:
+	if not FileAccess.file_exists(Settings.SAVE_FILE):
+		return ""
+	var f := FileAccess.open(Settings.SAVE_FILE, FileAccess.READ)
+	return "" if f == null else f.get_as_text()
+
+
+func _cleanup_sandbox() -> void:
+	Settings.save_file = Settings.SAVE_FILE
+	if FileAccess.file_exists(SANDBOX):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SANDBOX))
 
 
 func _assert(cond: bool, msg: String) -> void:
+	_log.append([cond, msg])
 	if cond:
 		_passes += 1
 		print("PASS: " + msg)
@@ -35,6 +73,10 @@ func _assert(cond: bool, msg: String) -> void:
 func _run_defaults_load() -> void:
 	await get_tree().process_frame
 	_assert(Settings != null, "Boot: Settings autoload present")
+	# Clear any state a prior run persisted to user://settings.json so the
+	# defaults check is idempotent (this test later sets audio.master = 0.5).
+	if Settings:
+		Settings.reset_to_defaults()
 	# Default master volume is 1.0.
 	_assert(float(Settings.get_value("audio.master", -1.0)) == 1.0,
 		"Defaults: audio.master = 1.0 (got %s)" % str(Settings.get_value("audio.master", -1.0)))

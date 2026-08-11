@@ -30,11 +30,11 @@ Or set `theme_data` in the Inspector if the menu is a packed scene.
 
 ## Background image
 
-Drop a Texture2D into `theme_data.background_texture`. The `MainMenuUI` shows it under a darkening overlay; the others use the flat `bg_color`. For a fully custom background, leave the texture null and put your own setup behind the menu Control in your scene.
+Drop a Texture2D into `theme_data.background_texture`. The `MainMenuUI` shows it under a darkening overlay. The others use the flat `bg_color`. For a fully custom background, leave the texture null and put your own setup behind the menu Control in your scene.
 
 ## Font
 
-`MenuTheme` doesn't carry a font directly — drop a stock Godot Theme on the menu Control (or globally via Project → GUI → Theme → Custom Theme) and the menus pick it up. The `font_size_override` calls only affect size, not face.
+`MenuTheme` doesn't carry a font directly. Drop a stock Godot Theme on the menu Control (or globally via Project → GUI → Theme → Custom Theme) and the menus pick it up. The `font_size_override` calls only affect size, not face.
 
 ## Per-platform defaults
 
@@ -51,7 +51,7 @@ main_menu.theme_data = theme
 
 ## Reusing the stylebox helpers
 
-`MenuTheme` exposes helpers for the built-in stylebox shapes — useful if you're building your own custom UI page (e.g. a stats screen) and want it to match:
+`MenuTheme` exposes helpers for the built-in stylebox shapes. Handy if you're building your own custom UI page (e.g. a stats screen) and want it to match:
 
 ```gdscript
 var sb := theme.panel_stylebox()

@@ -2,6 +2,19 @@
 
 Five minutes from copy to a working main menu → game → pause → options loop.
 
+## 0. Fastest path: the setup panel (no code)
+
+Enable the plugin, open the **Menus · Setup** tab in the editor, pick what your game
+needs (main menu, pause menu, options screen, or all three), choose where they land,
+and press **Apply**. The menus are spawned and wired into your scene for you. Fill in
+*Play loads this scene* while you're there and the main menu's Play button is done. The
+`pause` input action is registered for you if your project doesn't have one yet.
+Re-pick and Apply any time, and it updates in place instead of duplicating. Restyle
+everything at once from the sibling **Menu Theme** tab.
+
+The steps below are the manual route if you'd rather build it by hand or understand
+each piece.
+
 ## 1. Install
 
 1. Copy `addons/settings_menus/` into your project's `addons/` folder.
@@ -10,7 +23,8 @@ Five minutes from copy to a working main menu → game → pause → options loo
 
 ## 2. Set up the main menu
 
-Make a new scene whose root is a `MainMenuUI` (a Control derivative):
+The **Menus · Setup** panel builds this for you (pick **Main menu** → **Apply**).
+By hand, make a new scene whose root is a `MainMenuUI` (a Control derivative):
 
 ```gdscript
 extends Node
@@ -34,7 +48,8 @@ Project Settings → Application → Run → Main Scene → point to this scene.
 
 ## 3. Wire pause into your game
 
-In your gameplay scene's root script:
+The **Menus · Setup** panel does this for you. Open your gameplay scene, pick
+**Pause menu**, press **Apply**. By hand, in your gameplay scene's root script:
 
 ```gdscript
 const PauseMenuUIScript := preload("res://addons/settings_menus/ui/pause_menu_ui.gd")
@@ -68,6 +83,15 @@ Settings.setting_changed.connect(func(key, value):
         _rebuild_my_hud(value))
 ```
 
+Settings land in `user://settings.json`, or go through the Save addon's side channel if you have that installed. Point them somewhere else with `Settings.save_file`, which is useful for per-profile settings and for tests that shouldn't stomp your real ones:
+
+```gdscript
+Settings.save_file = "user://profiles/alice_settings.json"
+Settings.load_settings()
+```
+
+Naming a file also opts out of the Save-addon side channel.
+
 ## 5. Custom settings
 
 The Settings autoload stores anything. Add your own key in a script that runs before _ready completes:
@@ -91,9 +115,9 @@ Settings.rebindable_actions = PackedStringArray([
 ])
 ```
 
-Only actions that exist in your InputMap show up — undefined ones are silently skipped.
+Only actions that exist in your InputMap show up. Undefined ones are silently skipped.
 
 ## What's next
 
-- [theming.md](theming.md) — recolor / rebrand every menu via a `MenuTheme` Resource.
-- [cross-promo.md](cross-promo.md) — the paid systems this funnel exists to advertise.
+- [theming.md](theming.md): recolor / rebrand every menu via a `MenuTheme` Resource.
+- [cross-promo.md](cross-promo.md): the paid systems this funnel exists to advertise.

@@ -19,6 +19,12 @@ signal settings_reset
 
 const SAVE_FILE := "user://settings.json"
 
+# Where settings actually land. Point this somewhere else (before anything calls
+# save_settings) to sandbox a test or keep per-profile settings. Setting it also
+# opts out of the SaveManager side-channel below — if you named a file, you want
+# that file.
+var save_file: String = SAVE_FILE
+
 # Defaults applied when no save file exists. Game code can override via
 # Settings.set_default("key", value) before _ready completes.
 var _defaults: Dictionary = {
@@ -100,15 +106,15 @@ func reset_to_defaults() -> void:
 ## Persist the current snapshot to disk (or the Save backend).
 func save_settings() -> void:
 	var save_mgr := get_node_or_null("/root/SaveManager")
-	if save_mgr != null and save_mgr.has_method("write_side_channel"):
+	if save_file == SAVE_FILE and save_mgr != null and save_mgr.has_method("write_side_channel"):
 		save_mgr.write_side_channel("settings", _data)
 		return
-	var f := FileAccess.open(SAVE_FILE, FileAccess.WRITE)
+	var f := FileAccess.open(save_file, FileAccess.WRITE)
 	if f == null:
 		# Surface the actual open error code, not just "could not open".
 		# Players hitting read-only user dirs or quota issues need this in
 		# the log to diagnose lost-settings reports.
-		push_warning("Settings: could not open %s for write (%s)" % [SAVE_FILE, error_string(FileAccess.get_open_error())])
+		push_warning("Settings: could not open %s for write (%s)" % [save_file, error_string(FileAccess.get_open_error())])
 		return
 	f.store_string(JSON.stringify(_data, "  "))
 	f.close()
@@ -116,20 +122,20 @@ func save_settings() -> void:
 	# file actually contains data the size we expected.
 	var err := FileAccess.get_open_error()
 	if err != OK:
-		push_warning("Settings: write to %s reported %s" % [SAVE_FILE, error_string(err)])
+		push_warning("Settings: write to %s reported %s" % [save_file, error_string(err)])
 
 
 func load_settings() -> void:
 	var save_mgr := get_node_or_null("/root/SaveManager")
-	if save_mgr != null and save_mgr.has_method("read_side_channel"):
+	if save_file == SAVE_FILE and save_mgr != null and save_mgr.has_method("read_side_channel"):
 		var loaded = save_mgr.read_side_channel("settings", {})
 		_data = (loaded if loaded is Dictionary else {}).duplicate(true)
 		_apply_defaults_for_missing()
 		return
-	if not FileAccess.file_exists(SAVE_FILE):
+	if not FileAccess.file_exists(save_file):
 		_data = _defaults.duplicate(true)
 		return
-	var f := FileAccess.open(SAVE_FILE, FileAccess.READ)
+	var f := FileAccess.open(save_file, FileAccess.READ)
 	if f == null:
 		_data = _defaults.duplicate(true)
 		return
@@ -248,7 +254,7 @@ func set_keybind(action: String, events: Array) -> void:
 	if not InputMap.has_action(action):
 		return
 	if not _is_rebindable(action):
-		push_warning("Settings: refused to rebind '%s' — not in rebindable_actions allowlist." % action)
+		push_warning("Settings: refused to rebind '%s', not in rebindable_actions allowlist." % action)
 		return
 	# De-duplicate events by serialized shape so the same key can't be added
 	# twice (e.g. clicking the row, hitting the same key, then hitting it
