@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0 (2026-08-22)
+
+Settings that actually report when they can't be saved.
+
+- **Settings failing to save is now reported.** The check meant to catch a failed write was asking the wrong question and always came back clean, so a full disk or a read-only folder lost your settings silently. It now measures what actually reached the file.
+- **Removed a Save/Load hand-off that never happened.** The code tried to pass settings to the Save/Load pack through a pair of methods that pack has never had, so the attempt was skipped every time and settings went to their own file anyway. Behaviour is unchanged. The comment that promised otherwise is gone, and settings staying in their own file is the right thing regardless: they belong to the player, not to a save slot, so deleting every slot leaves them intact.
+- **Dragging a slider no longer rewrites the settings file on every frame of the drag.** Each write empties the file before refilling it, so a drag left a stream of moments where the settings file was blank on disk. Changes are now collected and written once the player stops moving, and anything still waiting is written out when the game closes.
+- The demo project targets Godot 4.5, matching the rest of the catalogue.
+- The bundled self-test no longer prints leaked-object errors after passing, and now covers saving, reloading and recovering from a damaged settings file.
+
 ## 1.3.0 (2026-08-10)
 
 Your saved settings are safe from the pack's own test.

@@ -33,7 +33,7 @@ extends Resource
 
 @export_group("Branding")
 @export var game_title: String = "Your Game Here"
-@export var game_subtitle: String = "A demo built on the CindieForge Settings + Menus template."
+@export var game_subtitle: String = "A demo built on the selodev Settings + Menus template."
 @export var background_texture: Texture2D
 @export var logo_texture: Texture2D
 

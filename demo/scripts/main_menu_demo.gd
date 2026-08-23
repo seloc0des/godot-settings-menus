@@ -12,7 +12,7 @@ func _ready() -> void:
 	var menu: MainMenuUI = MainMenuUIScript.new()
 	var theme: MenuTheme = MenuThemeScript.new()
 	theme.game_title = "Settings + Menus"
-	theme.game_subtitle = "Free funnel for the CindieForge RPG Toolkit.\nPress Play to drop into a tiny pausable demo room."
+	theme.game_subtitle = "Free funnel for the selodev RPG Toolkit.\nPress Play to drop into a tiny pausable demo room."
 	menu.theme_data = theme
 	menu.play_scene_path = "res://demo/game_scene.tscn"
 	menu.anchor_right = 1

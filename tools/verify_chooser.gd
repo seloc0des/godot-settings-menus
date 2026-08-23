@@ -59,7 +59,7 @@ func _ready() -> void:
 	_assert(_count_class(root, "OptionsMenuUI") == 1, "ALL added exactly one OptionsMenuUI")
 	# All Controls share the single owned UILayer — no layer sprawl.
 	_assert(_count_class(root, "UILayer") == 1, "all Controls share one owned UILayer (no layer sprawl)")
-	root.queue_free()
+	root.free()
 
 	# SCOPE: "under the selected node" — the chooser passes a different parent, but
 	# ownership still resolves to root so it serializes. Menu lands under the pick.
@@ -72,7 +72,7 @@ func _ready() -> void:
 	var opts = madeS[0]
 	_assert(opts.owner == root2, "SELECTED scope: OptionsMenuUI still owned by root (serializes)")
 	_assert(_is_descendant(holder, opts), "SELECTED scope: menu landed under the selected node")
-	root2.queue_free()
+	root2.free()
 
 	# OWNERSHIP — a menu buried in an instanced sub-scene (owner != root) must NOT be
 	# hijacked; Apply should make a fresh menu the scene actually owns. Fresh root so
@@ -87,7 +87,7 @@ func _ready() -> void:
 	var fresh = madeF[0]
 	_assert(fresh != buried, "did not hijack a MainMenuUI owned by a sub-scene")
 	_assert(fresh.owner == root3, "made a fresh MainMenuUI the scene root owns")
-	root3.queue_free()
+	root3.free()
 
 	# PAUSE ACTION — no-code input action, ships in project.godot on a real Apply.
 	# Test in memory only (save=false) so we never pollute the pack's project.godot.
@@ -105,6 +105,9 @@ func _ready() -> void:
 	else:
 		_assert(true, "pause action already defined in this project (skipped in-memory add)")
 
+	# free(), not queue_free(): we quit on the next line, so a deferred free never
+	# runs and the engine reports leaked objects after an all-green result.
+	dock.free()
 	print("--- %d passed, %d failed ---" % [_passes, _failures])
 	get_tree().quit(0 if _failures == 0 else 1)
 

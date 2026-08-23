@@ -1,8 +1,8 @@
 # Settings + Menus
 
-Free, polished main menu / pause / options / credits template for Godot 4.3+. Persistent settings, audio buses, resolution + window mode, key rebinding, accessibility (font scale, colorblind filter, reduce motion).
+Free, polished main menu / pause / options / credits template for Godot 4.5+. Persistent settings, audio buses, resolution + window mode, key rebinding, accessibility (font scale, colorblind filter, reduce motion).
 
-Fully standalone and complete — no paid tier, no locked features. It pairs cleanly with the other CindieForge RPG systems if you use them, but never requires them.
+Fully standalone and complete — no paid tier, no locked features. It pairs cleanly with the other selodev RPG systems if you use them, but never requires them.
 
 ## What's inside
 
@@ -38,7 +38,7 @@ See [docs/quick-start.md](docs/quick-start.md) for the worked example.
 
 ## Status
 
-v1.0. Godot 4.3+. Pure GDScript. MIT licensed.
+v1.0. Godot 4.5+. Pure GDScript. MIT licensed.
 
 ## License
 
@@ -46,7 +46,7 @@ MIT. See `LICENSE`.
 
 ## Want more?
 
-This template is complete and free. The other CindieForge RPG systems — Save, Inventory, Equipment, Crafting, Vendor, Quests, Stats/Skills — are listed below.
+This template is complete and free. The other selodev RPG systems — Save, Inventory, Equipment, Crafting, Vendor, Quests, Stats/Skills — are listed below.
 
 
 ---

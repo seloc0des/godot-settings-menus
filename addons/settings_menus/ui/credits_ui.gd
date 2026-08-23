@@ -10,8 +10,8 @@ signal close_requested
 @export var theme_data: MenuTheme
 
 @export_multiline var credits_text: String = """# Built with
-CindieForge Settings + Menus
-CindieForge RPG Toolkit (paid expansion — see docs/cross-promo.md)
+selodev Settings + Menus
+selodev RPG Toolkit (paid expansion — see docs/cross-promo.md)
 
 # Engine
 Godot Engine — godotengine.org

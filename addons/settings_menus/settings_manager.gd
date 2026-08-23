@@ -8,10 +8,16 @@ extends Node
 #   * accessibility toggles (font scale, colorblind filter)
 #   * arbitrary game-supplied extras via set/get
 #
-# Persistence backends:
-#   * If /root/SaveManager exists (CindieForge Save addon installed), settings
-#     are saved through it as a side-channel "settings" payload.
-#   * Otherwise, settings persist to user://settings.json directly.
+# Persistence: settings live in their own file (user://settings.json by default,
+# see `save_file`). That's deliberate — settings belong to the player, not to a
+# save slot, so they survive deleting every slot.
+#
+# This used to try handing them to /root/SaveManager first, via a pair of
+# write_side_channel/read_side_channel methods the Save/Load pack has never had.
+# has_method() was false every time, so the branch never ran and the file path
+# below did all the work. If you want settings inside the Save pack's
+# slot-independent global store instead, its GameSettings helper already does
+# that; point `save_file` somewhere else and drive SaveManager.set_global yourself.
 
 signal setting_changed(key: String, value)
 signal settings_loaded
@@ -61,12 +67,50 @@ var rebindable_actions: PackedStringArray = PackedStringArray([
 var _data: Dictionary = {}
 var _captured_default_binds: Dictionary = {}
 
+# Dragging a slider fires value_changed every frame, and each one used to rewrite
+# the file. Opening for write truncates it first, so a drag left a stream of
+# moments where settings.json was empty on disk. Coalesce instead: the last
+# change in a burst wins, and we flush on the way out so nothing is lost.
+const SAVE_DEBOUNCE_SECONDS := 0.35
+var _save_timer: Timer
+var _save_pending: bool = false
+
 
 func _ready() -> void:
 	_capture_default_binds()
 	load_settings()
 	apply_all()
+	_save_timer = Timer.new()
+	_save_timer.name = "SettingsSaveDebounce"
+	_save_timer.one_shot = true
+	_save_timer.wait_time = SAVE_DEBOUNCE_SECONDS
+	_save_timer.timeout.connect(flush_save)
+	add_child(_save_timer)
 	settings_loaded.emit()
+
+
+func _notification(what: int) -> void:
+	# Don't let a queued write die with the process.
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
+		flush_save()
+
+
+## Queue a debounced write. Use this from anything that fires rapidly (sliders).
+## save_settings() stays immediate for callers that need the file on disk now.
+func request_save() -> void:
+	_save_pending = true
+	if _save_timer != null and is_instance_valid(_save_timer):
+		_save_timer.start()
+	else:
+		save_settings()  # before _ready, or outside the tree: just write
+
+
+## Write now if a debounced save is waiting. Safe to call any time.
+func flush_save() -> void:
+	if not _save_pending:
+		return
+	_save_pending = false
+	save_settings()
 
 
 # ---- public API -----------------------------------------------------------
@@ -93,7 +137,7 @@ func set_value(key: String, value) -> void:
 	_data[key] = value
 	setting_changed.emit(key, value)
 	_apply_one(key, value)
-	save_settings()
+	request_save()
 
 
 func reset_to_defaults() -> void:
@@ -105,10 +149,6 @@ func reset_to_defaults() -> void:
 
 ## Persist the current snapshot to disk (or the Save backend).
 func save_settings() -> void:
-	var save_mgr := get_node_or_null("/root/SaveManager")
-	if save_file == SAVE_FILE and save_mgr != null and save_mgr.has_method("write_side_channel"):
-		save_mgr.write_side_channel("settings", _data)
-		return
 	var f := FileAccess.open(save_file, FileAccess.WRITE)
 	if f == null:
 		# Surface the actual open error code, not just "could not open".
@@ -116,22 +156,24 @@ func save_settings() -> void:
 		# the log to diagnose lost-settings reports.
 		push_warning("Settings: could not open %s for write (%s)" % [save_file, error_string(FileAccess.get_open_error())])
 		return
-	f.store_string(JSON.stringify(_data, "  "))
+	var text := JSON.stringify(_data, "  ")
+	var expected := text.to_utf8_buffer().size()
+	f.store_string(text)
 	f.close()
-	# store_string doesn't surface errors directly; check after close that the
-	# file actually contains data the size we expected.
-	var err := FileAccess.get_open_error()
-	if err != OK:
-		push_warning("Settings: write to %s reported %s" % [save_file, error_string(err)])
+	# Measure what actually landed. The previous check called
+	# FileAccess.get_open_error() here, which reports the last *open* result and
+	# is always OK by this point, so a full disk went unnoticed.
+	var check := FileAccess.open(save_file, FileAccess.READ)
+	if check == null:
+		push_warning("Settings: wrote %s but could not read it back." % save_file)
+		return
+	var written := check.get_length()
+	check.close()
+	if written != expected:
+		push_warning("Settings: %s is %d bytes but should be %d. The disk may be full; settings may not persist." % [save_file, written, expected])
 
 
 func load_settings() -> void:
-	var save_mgr := get_node_or_null("/root/SaveManager")
-	if save_file == SAVE_FILE and save_mgr != null and save_mgr.has_method("read_side_channel"):
-		var loaded = save_mgr.read_side_channel("settings", {})
-		_data = (loaded if loaded is Dictionary else {}).duplicate(true)
-		_apply_defaults_for_missing()
-		return
 	if not FileAccess.file_exists(save_file):
 		_data = _defaults.duplicate(true)
 		return

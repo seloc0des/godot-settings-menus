@@ -27,6 +27,9 @@ func _ready() -> void:
 	await _run_keybind_dedup()
 	await _run_keybind_conflict_detection()
 	await _run_ui_ignores_ui_actions()
+	await _run_persistence_roundtrip()
+	await _run_corrupt_settings_file()
+	await _run_save_debounce()
 	_assert(_snapshot_real_settings() == real_before,
 		"Sandbox: the real %s was left untouched" % Settings.SAVE_FILE)
 	_cleanup_sandbox()
@@ -189,3 +192,92 @@ func _run_ui_ignores_ui_actions() -> void:
 	_assert(not Settings._is_rebindable("ui_accept"), "Rebindable: ui_* rejected")
 	_assert(Settings._is_rebindable("jump"), "Rebindable: jump (in allowlist) accepted")
 	_assert(not Settings._is_rebindable("not_in_allowlist"), "Rebindable: arbitrary action rejected when allowlist non-empty")
+
+
+func _run_persistence_roundtrip() -> void:
+	# The whole point of the pack: change a setting, restart, still have it.
+	await get_tree().process_frame
+	Settings.save_file = SANDBOX
+	Settings.set_value("audio.master", 0.42)
+	Settings.set_value("a11y.font_scale", 1.75)
+	# writes are debounced, so a burst of changes coalesces into one file write
+	_assert(Settings._save_pending, "a changed setting queues a write")
+	Settings.flush_save()
+	_assert(FileAccess.file_exists(SANDBOX), "flushing writes the file")
+	_assert(not Settings._save_pending, "the queue is clear after a flush")
+
+	# what landed on disk must be the whole document, not a truncated one
+	var f := FileAccess.open(SANDBOX, FileAccess.READ)
+	var text := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(text)
+	_assert(parsed is Dictionary, "the file on disk is valid JSON")
+	if parsed is Dictionary:
+		_assert(is_equal_approx(float(parsed.get("audio.master", -1.0)), 0.42),
+			"the value on disk is the one we set (got %s)" % parsed.get("audio.master", "missing"))
+
+	# and reading it back restores both values
+	Settings._data = {}
+	Settings.load_settings()
+	_assert(is_equal_approx(float(Settings.get_value("audio.master", -1.0)), 0.42),
+		"reloading restores the volume (got %s)" % Settings.get_value("audio.master", -1.0))
+	_assert(is_equal_approx(float(Settings.get_value("a11y.font_scale", -1.0)), 1.75),
+		"reloading restores the font scale (got %s)" % Settings.get_value("a11y.font_scale", -1.0))
+
+	# a setting we never touched still falls back to its default
+	_assert(Settings.get_value("display.vsync", null) != null, "untouched settings still resolve to a default")
+
+
+func _run_corrupt_settings_file() -> void:
+	# Settings files get hand-edited and truncated by a full disk.
+	await get_tree().process_frame
+	Settings.save_file = SANDBOX
+
+	var f := FileAccess.open(SANDBOX, FileAccess.WRITE)
+	f.store_string("this is not json at all")
+	f.close()
+	Settings.load_settings()
+	_assert(Settings.get_value("audio.master", null) != null,
+		"a non-JSON settings file still leaves usable defaults")
+
+	# a JSON array where an object belongs
+	var f2 := FileAccess.open(SANDBOX, FileAccess.WRITE)
+	f2.store_string("[1, 2, 3]")
+	f2.close()
+	Settings.load_settings()
+	_assert(Settings.get_value("audio.master", null) != null,
+		"a JSON array instead of an object still leaves usable defaults")
+
+	# an empty file
+	var f3 := FileAccess.open(SANDBOX, FileAccess.WRITE)
+	f3.store_string("")
+	f3.close()
+	Settings.load_settings()
+	_assert(Settings.get_value("a11y.colorblind_filter", null) != null,
+		"an empty settings file still leaves usable defaults")
+
+
+func _run_save_debounce() -> void:
+	# A slider drag fires value_changed every frame. Each write truncates the file
+	# first, so writing per tick left a stream of moments where settings.json was
+	# empty on disk. The burst must collapse into one write that lands on its own.
+	await get_tree().process_frame
+	Settings.save_file = SANDBOX
+	Settings.flush_save()
+	if FileAccess.file_exists(SANDBOX):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SANDBOX))
+
+	# simulate a drag
+	for i in range(30):
+		Settings.set_value("audio.music", float(i) / 30.0)
+	_assert(Settings._save_pending, "a burst of 30 changes leaves one write queued, not 30")
+	_assert(not FileAccess.file_exists(SANDBOX), "nothing has been written to disk mid-burst")
+
+	# and it lands by itself, without anyone calling flush
+	await get_tree().create_timer(Settings.SAVE_DEBOUNCE_SECONDS + 0.25).timeout
+	_assert(not Settings._save_pending, "the queued write fired on its own")
+	_assert(FileAccess.file_exists(SANDBOX), "the debounced write reached the disk")
+	Settings._data = {}
+	Settings.load_settings()
+	_assert(is_equal_approx(float(Settings.get_value("audio.music", -1.0)), 29.0 / 30.0),
+		"the last value of the burst is the one that persisted (got %s)" % Settings.get_value("audio.music", -1.0))
