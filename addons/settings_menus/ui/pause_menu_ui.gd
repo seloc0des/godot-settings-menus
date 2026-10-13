@@ -18,6 +18,7 @@ var _panel: PanelContainer
 var _options: OptionsMenuUI
 var _first_button: Button
 var _focus_return: Control
+var _focus_before_pause: Control
 
 
 func _ready() -> void:
@@ -45,6 +46,9 @@ func toggle() -> void:
 
 
 func pause() -> void:
+	var had := get_viewport().gui_get_focus_owner()
+	if had != null and not is_ancestor_of(had):
+		_focus_before_pause = had
 	get_tree().paused = true
 	visible = true
 	# If Options was left open from a prior session (external resume() without
@@ -63,6 +67,11 @@ func resume() -> void:
 	var owner_ctl := get_viewport().gui_get_focus_owner()
 	if owner_ctl != null and is_ancestor_of(owner_ctl):
 		owner_ctl.release_focus()
+	# Hand focus back to whatever had it before the pause. With All three, that's the
+	# main menu under this one, and it went deaf to Enter and the arrows after Resume.
+	if is_instance_valid(_focus_before_pause) and _focus_before_pause.is_visible_in_tree():
+		_focus_before_pause.grab_focus()
+	_focus_before_pause = null
 	resumed.emit()
 
 

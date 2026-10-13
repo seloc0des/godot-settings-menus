@@ -32,10 +32,27 @@ func _ready() -> void:
 		theme_data = MenuTheme.new()
 	_build()
 	_apply_font_scale()
+	focus_default()
+
+
+# Shown again later (a game that hid it, say): straight back onto the first button.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and _first_button != null and is_visible_in_tree():
+		focus_default()
+
+
+func focus_default() -> void:
 	# Defer so the button is fully in the tree and sized before we focus it —
 	# otherwise the focus rect can render at (0,0) for a frame.
 	if _first_button != null:
-		_first_button.call_deferred("grab_focus")
+		call_deferred("_grab_if_shown", _first_button)
+
+
+# A hidden control that grabs focus keeps it, and the keys go nowhere: Enter and
+# the arrows did nothing on the main menu while a hidden Options held focus.
+func _grab_if_shown(c: Control) -> void:
+	if is_instance_valid(c) and c.is_visible_in_tree():
+		c.grab_focus()
 
 
 func _build() -> void:

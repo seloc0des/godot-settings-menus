@@ -75,8 +75,14 @@ func _build() -> void:
 
 	_tabs.add_child(_build_audio_tab())
 	_tabs.add_child(_build_display_tab())
+	# Only when something is listening. A Graphics tab whose dropdowns move
+	# nothing is worse than no tab at all.
+	var settings_for_tabs := _settings()
+	if settings_for_tabs != null and settings_for_tabs.quality_provider() != null:
+		_tabs.add_child(_build_graphics_tab())
 	_tabs.add_child(_build_controls_tab())
 	_tabs.add_child(_build_a11y_tab())
+	_frame_checkboxes(_tabs)
 
 
 # ---- tab: audio ----------------------------------------------------------
@@ -89,6 +95,12 @@ func _build_audio_tab() -> Control:
 	_add_slider_row(tab, "Master", "audio.master", 0.0, 1.0, 0.01)
 	_add_slider_row(tab, "Music", "audio.music", 0.0, 1.0, 0.01)
 	_add_slider_row(tab, "SFX", "audio.sfx", 0.0, 1.0, 0.01)
+	# Only the buses this project actually has. Showing a Dialogue slider in a
+	# game with no Dialogue bus is a control that does nothing, which is worse
+	# than not offering it.
+	for pair in [["Dialogue", "dialogue"], ["UI", "ui"], ["Ambience", "ambience"]]:
+		if SETTINGS_MANAGER.bus_exists(pair[1]):
+			_add_slider_row(tab, pair[0], "audio.%s" % pair[1], 0.0, 1.0, 0.01)
 	return tab
 
 
@@ -198,7 +210,7 @@ func _build_controls_tab() -> Control:
 		return tab
 
 	var hint := Label.new()
-	hint.text = "Click a binding to rebind. Press any key, mouse button, or gamepad button to set."
+	hint.text = "Click a binding and press the new one: a key or mouse button on the left, a gamepad button, trigger or stick on the right. Esc or Start cancels."
 	hint.add_theme_font_size_override("font_size", theme_data.body_font_size)
 	hint.add_theme_color_override("font_color", theme_data.text_dim)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -234,7 +246,9 @@ func _build_controls_tab() -> Control:
 
 
 func _refresh_controls_tab() -> void:
-	# Rebuild the controls tab by swapping it.
+	# Rebuild the controls tab by swapping it. The old one goes first: added while the
+	# old one still held the name, the new tab was renamed "@VBoxContainer@NNN", which
+	# became its title, so the next refresh couldn't find "Controls".
 	var tabs := _tabs
 	var idx := -1
 	for i in tabs.get_tab_count():
@@ -243,11 +257,58 @@ func _refresh_controls_tab() -> void:
 	if idx < 0:
 		return
 	var old := tabs.get_child(idx)
+	var current := tabs.current_tab
+	# The focused button leaves with the old tab, and a pad was left with nowhere to
+	# go. Its twin in the new tab takes the focus instead.
+	var focused := get_viewport().gui_get_focus_owner()
+	var focus_text := (focused as Button).text if focused is Button and old.is_ancestor_of(focused) else ""
+	tabs.remove_child(old)
+	old.queue_free()
 	var fresh := _build_controls_tab()
 	tabs.add_child(fresh)
 	tabs.move_child(fresh, idx)
-	tabs.remove_child(old)
-	old.queue_free()
+	tabs.current_tab = current
+	_frame_checkboxes(fresh)
+	if focus_text == "":
+		return
+	for b in fresh.find_children("*", "Button", true, false):
+		if (b as Button).text == focus_text:
+			(b as Button).grab_focus.call_deferred()
+			return
+
+
+# ---- tab: graphics -------------------------------------------------------
+
+func _build_graphics_tab() -> Control:
+	var settings := _settings()
+	var tab := VBoxContainer.new()
+	tab.name = "Graphics"
+	tab.add_theme_constant_override("separation", 10)
+	_add_padding(tab)
+	if settings == null:
+		return tab
+
+	for row in settings.QUALITY_AXES:
+		var key := String(row[0])
+		var axis_row := _row(tab, String(row[1]))
+		var opt := OptionButton.new()
+		for level_name in settings.QUALITY_LEVELS:
+			opt.add_item(String(level_name))
+		# Stored as -1 for "follow", which is item 0 here.
+		opt.selected = int(settings.get_value("quality." + key, -1)) + 1
+		opt.item_selected.connect(func(idx: int):
+			var s := _settings()
+			if s != null:
+				s.set_value("quality." + key, idx - 1))
+		axis_row.add_child(opt)
+
+	var note := Label.new()
+	note.text = "Each of these follows the graphics preset until you change it, and then stays where you put it even if the preset moves."
+	note.add_theme_font_size_override("font_size", 11)
+	note.add_theme_color_override("font_color", theme_data.text_dim)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tab.add_child(note)
+	return tab
 
 
 # ---- tab: accessibility --------------------------------------------------
@@ -308,8 +369,50 @@ func _build_a11y_tab() -> Control:
 			s.set_value("a11y.reduce_motion", p))
 	motion_row.add_child(motion_cb)
 
+	# Effects. One toggle each, not a single post-processing switch: someone who
+	# wants shake gone usually still wants the grain.
+	var fx_head := Label.new()
+	fx_head.text = "Effects"
+	fx_head.add_theme_font_size_override("font_size", theme_data.body_font_size)
+	fx_head.add_theme_color_override("font_color", theme_data.text_dim)
+	tab.add_child(fx_head)
+
+	var fx_rows: Dictionary = {}
+	for row in settings.EFFECTS:
+		var key := String(row[0])
+		var fx_row := _row(tab, String(row[1]))
+		var fx_cb := CheckBox.new()
+		fx_cb.button_pressed = bool(settings.get_value("fx." + key, true))
+		fx_cb.toggled.connect(func(p):
+			var s := _settings()
+			if s != null:
+				s.set_value("fx." + key, p))
+		fx_row.add_child(fx_cb)
+		fx_rows[key] = fx_row
+
+	# Reduce motion switches the motion effects off, so show them off rather than
+	# leaving a ticked box beside an effect that is not running. Set without the
+	# signal, or the displayed value writes itself back over the preference it is
+	# standing in for.
+	var sync_motion := func() -> void:
+		var s := _settings()
+		if s == null:
+			return
+		var reduced := bool(s.get_value("a11y.reduce_motion", false))
+		for row in s.EFFECTS:
+			if not bool(row[2]):
+				continue
+			var r := fx_rows[String(row[0])] as HBoxContainer
+			var box := r.get_child(1) as CheckBox
+			box.disabled = reduced
+			box.set_pressed_no_signal(s.is_effect_enabled(String(row[0])))
+			var lbl := r.get_child(0) as Label
+			lbl.add_theme_color_override("font_color", theme_data.text_dim if reduced else theme_data.text)
+	sync_motion.call()
+	motion_cb.toggled.connect(func(_p): sync_motion.call())
+
 	var note := Label.new()
-	note.text = "Font scale takes effect after re-opening menus. Game UI should query Settings.get_font_scale() at startup."
+	note.text = "Font scale takes effect after re-opening menus. Game UI should query Settings.get_font_scale() at startup. Effect toggles are published on Settings.effects_changed for your game to act on. Reduce Motion switches the motion effects off without forgetting how you had them."
 	note.add_theme_font_size_override("font_size", 11)
 	note.add_theme_color_override("font_color", theme_data.text_dim)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -339,6 +442,17 @@ func _add_padding(box: VBoxContainer) -> void:
 	box.add_child(p)
 
 
+# Every box gets the theme's unticked frame, the ones a subclass adds in its own tab
+# builders included. Godot's stock one barely showed on this background. A box
+# already drawn from your own Godot Theme is left alone.
+func _frame_checkboxes(root: Node) -> void:
+	var stock := ThemeDB.get_default_theme().get_icon(&"unchecked", &"CheckBox")
+	for node in root.find_children("*", "CheckBox", true, false):
+		var cb := node as CheckBox
+		if cb.get_theme_icon(&"unchecked") == stock:
+			theme_data.apply_to_checkbox(cb)
+
+
 # ---- actions --------------------------------------------------------------
 
 func _reset_all() -> void:
@@ -361,7 +475,19 @@ func focus_default() -> void:
 	# Land on Back so Tab walks into the tabs naturally and Esc has an obvious
 	# escape hatch already highlighted.
 	if _back_btn != null:
-		_back_btn.call_deferred("grab_focus")
+		call_deferred("_grab_if_shown", _back_btn)
+
+
+# All three adds one that starts hidden. It used to grab focus anyway and keep it,
+# so the main menu under it ignored Enter and the arrows. Focus comes when it opens.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and _back_btn != null and is_visible_in_tree():
+		focus_default()
+
+
+func _grab_if_shown(c: Control) -> void:
+	if is_instance_valid(c) and c.is_visible_in_tree():
+		c.grab_focus()
 
 
 # Centralized accessor so every consumer null-checks consistently. Returns
@@ -369,3 +495,9 @@ func focus_default() -> void:
 # or projects that haven't wired the addon yet).
 func _settings() -> Node:
 	return get_node_or_null("/root/Settings")
+
+
+# Settings is reached through its script instead of named. A script that names an
+# autoload won't compile until the plugin that adds it is switched on, so a fresh
+# install printed parse errors.
+const SETTINGS_MANAGER := preload("res://addons/settings_menus/settings_manager.gd")

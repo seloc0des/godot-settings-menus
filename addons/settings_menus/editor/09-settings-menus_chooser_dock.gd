@@ -26,15 +26,23 @@ var _buttons := {}
 var _scope: OptionButton
 var _play_path: LineEdit
 var _status: Label
+var _scroll: ScrollContainer
 
 
 func _ready() -> void:
 	name = "Menus · Setup"
-	custom_minimum_size = Vector2(320, 440)
+	# The whole tab scrolls, so a short screen or a big editor scale can't push the
+	# bottom off. Sideways it wraps instead.
+	_scroll = ScrollContainer.new()
+	_scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.minimum_size_changed.connect(update_minimum_size)
+	add_child(_scroll)
 	var root := VBoxContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_theme_constant_override("separation", 6)
-	add_child(root)
+	_scroll.add_child(root)
 
 	root.add_child(_h("1.  Pick the menus your game needs"))
 	var grid := GridContainer.new()
@@ -49,6 +57,10 @@ func _ready() -> void:
 	_scope = OptionButton.new()
 	_scope.add_item("This scene", Scope.THIS_SCENE)
 	_scope.add_item("Under the selected node", Scope.SELECTED)
+	# ends in "…" in a narrow dock instead of widening it; the open list shows it whole
+	_scope.fit_to_longest_item = false
+	_scope.clip_text = true
+	_scope.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	root.add_child(_scope)
 
 	# Per-outcome option: the Play scene the Main menu loads. Blank is fine —
@@ -73,6 +85,12 @@ func _ready() -> void:
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.modulate = Color(0.72, 0.75, 0.82)
 	root.add_child(note)
+
+
+# A plain Control doesn't tell the dock slot how narrow its page can go, so say it
+# here. Height is the scroll's job.
+func _get_minimum_size() -> Vector2:
+	return Vector2(_scroll.get_combined_minimum_size().x, 0.0) if _scroll != null else Vector2.ZERO
 
 
 # ---- pick ----------------------------------------------------------------
@@ -115,7 +133,10 @@ func _on_apply() -> void:
 	var made := wire(root, parent, _chosen, _play_path.text.strip_edges())
 	if not made.is_empty():
 		_select(made[0])
-	_say("Added %s. Tweak it in the Inspector, restyle in the Menu Theme tab, or re-pick here." % _label(_chosen), OK_COLOR)
+	var extra := ""
+	if _chosen == Outcome.ALL:
+		extra = " The Options screen starts hidden so the main menu shows first. The main and pause menus open their own Options."
+	_say("Added %s.%s Tweak it in the Inspector, restyle in the Menu Theme tab, or re-pick here." % [_label(_chosen), extra], OK_COLOR)
 
 
 # --- pure wiring (no EditorInterface, so it's headless-testable) -----------
@@ -134,7 +155,11 @@ func wire(root: Node, parent: Node, outcome: int, play_path: String) -> Array:
 		Outcome.ALL:
 			made.append(_ensure_main(root, parent, play_path))
 			made.append(_ensure_pause(root, parent))
-			made.append(_ensure_options(root, parent))
+			# Full screen as well, so shown it'd sit right on top of the main menu.
+			# Both other menus open their own Options anyway.
+			var opts := _ensure_options(root, parent)
+			opts.set("visible", false)
+			made.append(opts)
 	return made
 
 
@@ -148,6 +173,7 @@ func _ensure_main(root: Node, parent: Node, play_path: String) -> Node:
 	if play_path != "":
 		ui.set("play_scene_path", play_path)
 	_bind_theme(ui)
+	_fill_screen(ui)
 	return ui
 
 
@@ -155,6 +181,7 @@ func _ensure_options(root: Node, parent: Node) -> Node:
 	var layer := _find_ui_layer(root, parent)
 	var ui := _ensure(root, layer, "OptionsMenuUI", OPTIONS_SCRIPT)
 	_bind_theme(ui)
+	_fill_screen(ui)
 	return ui
 
 
@@ -167,16 +194,61 @@ func _ensure_pause(root: Node, parent: Node) -> Node:
 
 
 # Ensure a "pause" input action exists so the pause menu works out of the box.
-# Pure + safe to call from a test: pass save=false to only touch the in-memory
-# ProjectSettings. On a real Apply the caller saves.
+# Safe to call from a test: save=false only touches the in-memory ProjectSettings,
+# and even save=true only writes project.godot from inside the editor.
+## Escape and Start, not Escape alone.
+##
+## A pause action bound only to a key means a player using a gamepad and nothing
+## else can never open the pause menu, and the pause menu is the only way to
+## reach the settings that would let them fix it. Start is where every console
+## player already expects it.
 func ensure_pause_action(save := true) -> void:
 	var key := "input/" + PAUSE_ACTION
 	if ProjectSettings.has_setting(key):
+		_add_missing_pause_events(key, save)
 		return
+	ProjectSettings.set_setting(key, {"deadzone": 0.5, "events": pause_events()})
+	_persist(save)
+
+
+## The default bindings, as their own function so the suite can check them
+## without touching project settings.
+static func pause_events() -> Array:
+	# device -1 (every device): a new event takes the engine's own keyboard id, 0 on
+	# 4.5 and 16 on 4.7, so a saved pause key went dead after moving between them
 	var esc := InputEventKey.new()
 	esc.physical_keycode = KEY_ESCAPE
-	ProjectSettings.set_setting(key, {"deadzone": 0.5, "events": [esc]})
-	if save:
+	esc.device = -1
+	var start := InputEventJoypadButton.new()
+	start.button_index = JOY_BUTTON_START
+	start.device = -1
+	return [esc, start]
+
+
+## An action from an older version of this pack has Escape and nothing else.
+## Add the gamepad button rather than leaving the buyer with the bug, and leave
+## anything they bound themselves alone.
+func _add_missing_pause_events(key: String, save: bool) -> void:
+	var cfg: Variant = ProjectSettings.get_setting(key, null)
+	if not (cfg is Dictionary):
+		return
+	var events: Array = (cfg as Dictionary).get("events", [])
+	for e in events:
+		if e is InputEventJoypadButton:
+			return
+	var start := InputEventJoypadButton.new()
+	start.button_index = JOY_BUTTON_START
+	start.device = -1  # every pad, not just the first
+	events.append(start)
+	cfg["events"] = events
+	ProjectSettings.set_setting(key, cfg)
+	_persist(save)
+
+
+# Persisting is the editor's job. A headless caller saving here rewrites
+# project.godot's engine version line and bumps the pack's Godot floor.
+func _persist(save: bool) -> void:
+	if save and Engine.is_editor_hint():
 		ProjectSettings.save()
 
 
@@ -194,11 +266,28 @@ func _ensure(root: Node, parent: Node, cls: String, script_path: String) -> Node
 	var found := _find(root, cls)
 	if found != null:
 		return found  # re-entrant: reuse the existing one, never duplicate
-	var n: Node = load(script_path).new()
-	parent.add_child(n)
+	# Attach the script the way the editor does. script.new() makes a live
+	# instance even in the editor, so the menu's _ready would build its UI into
+	# the scene, fill theme_data before _bind_theme sees it, and call the Settings
+	# autoload, which the editor only has as a placeholder (an error in Output).
+	var scr: Script = load(script_path)
+	var n: Node = ClassDB.instantiate(scr.get_instance_base_type())
+	n.set_script(scr)
+	parent.add_child(n, true)
 	n.owner = root
 	n.name = cls
 	return n
+
+
+# MainMenuUI never anchors itself, so without this it sits at 0x0 in the corner:
+# no background, buttons piled top-left. Only a menu with no layout yet gets it,
+# so one the buyer has placed by hand is left alone.
+func _fill_screen(ui: Node) -> void:
+	var c := ui as Control
+	if c == null:
+		return
+	if c.anchor_right == 0.0 and c.anchor_bottom == 0.0 and c.size == Vector2.ZERO:
+		c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 
 # Find (or create) a CanvasLayer this scene owns, to hold the Control menus.
@@ -210,7 +299,7 @@ func _find_ui_layer(root: Node, fallback_parent: Node) -> Node:
 		return existing
 	var layer := CanvasLayer.new()
 	layer.name = "UILayer"
-	fallback_parent.add_child(layer)
+	fallback_parent.add_child(layer, true)
 	layer.owner = root
 	return layer
 
@@ -251,6 +340,9 @@ func _bind_theme(ui: Node) -> void:
 
 
 func _select(n: Node) -> void:
+	# Apply adds nodes without the undo manager, so the editor never flags the scene
+	# and Play would run the saved file without them. Flag it by hand.
+	EditorInterface.mark_scene_as_unsaved()
 	EditorInterface.get_selection().clear()
 	EditorInterface.get_selection().add_node(n)
 	EditorInterface.edit_node(n)
@@ -268,6 +360,7 @@ func _label(id: int) -> String:
 func _h(text: String) -> Label:
 	var l := Label.new()
 	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.modulate = Color(0.8, 0.85, 0.95)
 	return l
 

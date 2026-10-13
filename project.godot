@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="Settings + Menus — Demo"
-config/description="Polished free main menu / pause / options / credits template for Godot 4.5+. Funnel for the selodev RPG Toolkit."
+config/name="Settings + Menus · Demo"
+config/description="Polished free main menu / pause / options / credits template for Godot 4.5+. Pairs with the selodev RPG Toolkit."
 run/main_scene="res://demo/main_menu_scene.tscn"
 config/features=PackedStringArray("4.5", "GL Compatibility")
 

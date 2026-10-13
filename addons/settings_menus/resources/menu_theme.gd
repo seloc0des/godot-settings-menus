@@ -33,7 +33,8 @@ extends Resource
 
 @export_group("Branding")
 @export var game_title: String = "Your Game Here"
-@export var game_subtitle: String = "A demo built on the selodev Settings + Menus template."
+# Blank, so a new theme's title screen shows only what you type here.
+@export var game_subtitle: String = ""
 @export var background_texture: Texture2D
 @export var logo_texture: Texture2D
 
@@ -79,3 +80,27 @@ func apply_to_button(b: Button) -> void:
 	b.add_theme_color_override("font_hover_color", accent_hover)
 	b.add_theme_color_override("font_pressed_color", text_dim)
 	b.add_theme_font_size_override("font_size", button_font_size)
+
+
+# Godot's own unticked box is drawn for the editor's grey and all but vanishes on a
+# dark menu, so Reduce Motion read as a bare label. This one is a frame in text_dim,
+# the size of the ticked box so the two line up.
+func apply_to_checkbox(cb: CheckBox) -> void:
+	var ticked := cb.get_theme_icon(&"checked")
+	var size := ticked.get_width() if ticked != null else 16
+	cb.add_theme_icon_override(&"unchecked", checkbox_frame(size, text_dim))
+	var faint := text_dim
+	faint.a *= 0.45
+	cb.add_theme_icon_override(&"unchecked_disabled", checkbox_frame(size, faint))
+
+
+func checkbox_frame(size: int, edge: Color) -> ImageTexture:
+	size = maxi(size, 8)
+	var line := maxi(1, roundi(size / 8.0))
+	var img := Image.create_empty(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	img.fill_rect(Rect2i(0, 0, size, line), edge)
+	img.fill_rect(Rect2i(0, size - line, size, line), edge)
+	img.fill_rect(Rect2i(0, 0, line, size), edge)
+	img.fill_rect(Rect2i(size - line, 0, line, size), edge)
+	return ImageTexture.create_from_image(img)

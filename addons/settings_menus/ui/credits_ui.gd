@@ -34,7 +34,18 @@ func _ready() -> void:
 
 func focus_default() -> void:
 	if _back_btn != null:
-		_back_btn.call_deferred("grab_focus")
+		call_deferred("_grab_if_shown", _back_btn)
+
+
+# Same rule as Options: no focus while hidden, focus on Back when it opens.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and _back_btn != null and is_visible_in_tree():
+		focus_default()
+
+
+func _grab_if_shown(c: Control) -> void:
+	if is_instance_valid(c) and c.is_visible_in_tree():
+		c.grab_focus()
 
 
 func _unhandled_input(event: InputEvent) -> void:

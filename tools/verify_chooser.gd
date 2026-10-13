@@ -105,6 +105,36 @@ func _ready() -> void:
 	else:
 		_assert(true, "pause action already defined in this project (skipped in-memory add)")
 
+	# Only the editor writes project.godot. A headless save stamps a newer engine
+	# floor into it, so save=true out here must still leave the file alone.
+	var before_txt := FileAccess.get_file_as_string("res://project.godot")
+	var had_cfg: Variant = ProjectSettings.get_setting("input/pause", null)
+	var keep: Variant = had_cfg.duplicate(true) if had_cfg is Dictionary else null
+	dock.ensure_pause_action(true)
+	_assert(FileAccess.get_file_as_string("res://project.godot") == before_txt,
+		"ensure_pause_action(true) outside the editor leaves project.godot alone")
+	ProjectSettings.set_setting("input/pause", keep)  # put the in-memory copy back
+
+	# SIZED: chooser-made menus have to fill the screen. MainMenuUI never anchors
+	# itself and used to land 0x0 in the corner. Built in a 1280x720 viewport so
+	# the sizes mean something headless (the root one is tiny).
+	var vp := SubViewport.new()
+	vp.size = Vector2i(1280, 720)
+	get_tree().root.add_child(vp)
+	var root4 := Node2D.new()
+	vp.add_child(root4)
+	var madeA: Array = dock.wire(root4, root4, 3, "")  # Outcome.ALL
+	await get_tree().process_frame
+	var m4: Control = madeA[0]
+	var o4: Control = madeA[2]
+	_assert(m4.anchor_right == 1.0 and m4.anchor_bottom == 1.0 and m4.offset_right == 0.0,
+		"MainMenuUI anchored full rect")
+	_assert(m4.size == Vector2(1280, 720), "MainMenuUI fills a 1280x720 screen (got %s)" % m4.size)
+	_assert(o4.size == Vector2(1280, 720), "OptionsMenuUI fills it too (got %s)" % o4.size)
+	_assert(not o4.visible, "ALL: the Options screen starts hidden instead of covering the main menu")
+	_assert(madeA[1] is CanvasLayer, "PauseMenuUI stays its own CanvasLayer (it fills the screen itself)")
+	vp.free()
+
 	# free(), not queue_free(): we quit on the next line, so a deferred free never
 	# runs and the engine reports leaked objects after an all-green result.
 	dock.free()

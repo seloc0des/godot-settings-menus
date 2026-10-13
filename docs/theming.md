@@ -57,4 +57,7 @@ main_menu.theme_data = theme
 var sb := theme.panel_stylebox()
 my_panel.add_theme_stylebox_override("panel", sb)
 theme.apply_to_button(my_button)
+theme.apply_to_checkbox(my_checkbox)
 ```
+
+`apply_to_checkbox` draws the unticked box as a frame in `text_dim`, so it shows on a dark background. The options menu does this to its own boxes, except a box your own Godot Theme already styles.

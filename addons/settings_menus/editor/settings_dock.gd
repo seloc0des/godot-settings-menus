@@ -5,7 +5,7 @@ extends Control
 # the resource's exported properties and builds a control per property
 # (slider/spinbox/checkbox/color/dropdown/texture), so a designer tunes the look
 # without opening the Inspector. Shared, generic body — only the CONFIG block at
-# the top differs between packs (this copy targets the AAA-Visuals profiles).
+# the top differs between packs (this copy targets the menu themes).
 #
 # Follows the dock template: explicit-save, dirty tracking + discard guard,
 # delete confirm, search, working-copy + take_over_path. Gradients, curves,
@@ -42,6 +42,7 @@ var _dirty_label: Label
 var _status: Label
 var _new_type: OptionButton
 var _field_box: VBoxContainer
+var _scroll: ScrollContainer
 
 var _file_dialog: EditorFileDialog
 var _confirm_delete: ConfirmationDialog
@@ -54,9 +55,16 @@ var _icon_target := Callable()
 
 func _ready() -> void:
 	name = DOCK_NAME
-	custom_minimum_size = Vector2(340, 480)
 	_build_ui()
 	_refresh_list()
+	if Engine.is_editor_hint():
+		EditorInterface.get_inspector().property_edited.connect(_on_inspector_edit)
+
+
+# A plain Control doesn't tell the dock slot how narrow its page can go, so say it
+# here. Height is the scroll's job.
+func _get_minimum_size() -> Vector2:
+	return Vector2(_scroll.get_combined_minimum_size().x, 0.0) if _scroll != null else Vector2.ZERO
 
 
 # ---------------------------------------------------------------------------
@@ -64,15 +72,24 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 func _build_ui() -> void:
+	# One column that scrolls: the list on top, the picked resource's fields under
+	# it. Side by side, the fields needed more width than a default dock has.
+	_scroll = ScrollContainer.new()
+	_scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.minimum_size_changed.connect(update_minimum_size)
+	add_child(_scroll)
 	var root := VBoxContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(root)
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.add_child(root)
 
 	var header := HBoxContainer.new()
 	root.add_child(header)
 	_dir_label = Label.new()
 	_dir_label.text = _dir
 	_dir_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dir_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # a deep folder wraps, it doesn't widen the dock
 	_dir_label.tooltip_text = "Folder scanned for profiles"
 	header.add_child(_dir_label)
 	header.add_child(_mk_button("Folder…", _on_choose_folder))
@@ -83,36 +100,26 @@ func _build_ui() -> void:
 	_search.text_changed.connect(func(_t): _refresh_list())
 	root.add_child(_search)
 
-	var split := HSplitContainer.new()
-	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	split.split_offset = 130
-	root.add_child(split)
-
-	var left := VBoxContainer.new()
-	left.custom_minimum_size = Vector2(130, 0)
-	split.add_child(left)
 	_list = ItemList.new()
-	_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_list.custom_minimum_size = Vector2(0, 120)
 	_list.item_selected.connect(_on_list_selected)
-	left.add_child(_list)
+	root.add_child(_list)
 	# type picker only matters when a pack authors more than one profile type
 	if PROFILE_SCRIPTS.size() > 1:
 		_new_type = OptionButton.new()
 		for i in PROFILE_SCRIPTS.size():
 			_new_type.add_item(_type_name(PROFILE_SCRIPTS[i]), i)
-		left.add_child(_new_type)
+		root.add_child(_new_type)
 	var lb := HBoxContainer.new()
-	left.add_child(lb)
+	root.add_child(lb)
 	lb.add_child(_mk_button("New", _on_new))
 	lb.add_child(_mk_button("Dup", _on_duplicate))
 	lb.add_child(_mk_button("Del", _on_delete_pressed))
 
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	split.add_child(scroll)
+	root.add_child(HSeparator.new())
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(col)
+	root.add_child(col)
 
 	_dirty_label = Label.new()
 	_dirty_label.modulate = WARN_COLOR
@@ -130,6 +137,7 @@ func _build_ui() -> void:
 		_scene_menu.id_pressed.connect(_on_scene_menu_id)
 		add_child(_scene_menu)
 	_status = Label.new()
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_status)
 
 	_file_dialog = EditorFileDialog.new()
@@ -263,13 +271,16 @@ func _build_fields() -> void:
 	if _current == null:
 		return
 	_loading = true
-	for p in _current.get_property_list():
+	# the script's own list: in the editor a resource whose script isn't a tool script is
+	# a placeholder, and its property list has no script-variable flag, so the form was empty
+	var scr: Script = _current.get_script()
+	for p in (scr.get_script_property_list() if scr != null else []):
 		var usage: int = p["usage"]
 		if usage & PROPERTY_USAGE_GROUP:
 			if str(p["name"]) != "":
 				_field_box.add_child(_header(str(p["name"])))
 			continue
-		if not (usage & PROPERTY_USAGE_SCRIPT_VARIABLE):
+		if usage & (PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_SUBGROUP):
 			continue
 		if not (usage & PROPERTY_USAGE_EDITOR):
 			continue
@@ -280,6 +291,7 @@ func _build_fields() -> void:
 func _header(text: String) -> Label:
 	var l := Label.new()
 	l.text = "[ %s ]" % text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.modulate = Color(0.75, 0.8, 0.9)
 	return l
 
@@ -371,6 +383,10 @@ func _enum_control(prop: String, hint_string: String, value: int) -> OptionButto
 		opt.add_item(label, id)
 	opt.select(max(0, opt.get_item_index(value)))
 	opt.item_selected.connect(func(_i): _set_prop(prop, opt.get_selected_id()))
+	# a long choice ends in "…" in a narrow dock; the open list shows it whole
+	opt.fit_to_longest_item = false
+	opt.clip_text = true
+	opt.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	return opt
 
 
@@ -448,6 +464,7 @@ func _row(parent: Node, label_text: String, field: Control) -> void:
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var l := Label.new()
 	l.text = label_text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(l)
 	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(field)
@@ -538,13 +555,14 @@ func _on_save() -> void:
 	if err != OK:
 		_set_status("Save failed (err %d)" % err, ERR_COLOR)
 		return
-	_current.take_over_path(_current_path)
+	_sync_cached(_current, _current_path)
 	_current = _current.duplicate(false)
 	_clear_dirty()
 	_set_status("Saved.", OK_COLOR)
 
 
 func _after_write_select(path: String) -> void:
+	_register_uid(path)
 	_refresh_editor_fs()
 	_search.text = ""
 	_current_path = path
@@ -666,7 +684,7 @@ func _spawn(target: Dictionary) -> void:
 	var sel := EditorInterface.get_selection().get_selected_nodes()
 	if sel.size() > 0 and sel[0] is Node:
 		parent = sel[0]
-	parent.add_child(node)
+	parent.add_child(node, true)
 	node.owner = root  # required so the node is saved into the scene
 	# assign the on-disk resource (an ext_resource ref, not the working copy)
 	node.set(target["prop"], load(_current_path))
@@ -683,6 +701,8 @@ func _spawn(target: Dictionary) -> void:
 		var env := _find_in_tree(root, "WorldEnvironment")
 		if env:
 			node.set("environment_path", node.get_path_to(env))
+	# flag the scene, or Play runs the saved file without the node we just added
+	EditorInterface.mark_scene_as_unsaved()
 	EditorInterface.get_selection().clear()
 	EditorInterface.get_selection().add_node(node)
 	EditorInterface.edit_node(node)
@@ -704,3 +724,41 @@ func _refresh_editor_fs() -> void:
 		var fs := EditorInterface.get_resource_filesystem()
 		if fs:
 			fs.scan()
+
+
+# The Inspector edits the file's own copy. Keep the working copy in step, or the
+# next Save here would put back whatever the Inspector just changed.
+func _on_inspector_edit(prop: String) -> void:
+	if _current == null or _current_path == "":
+		return
+	var obj := EditorInterface.get_inspector().get_edited_object()
+	if not (obj is Resource) or (obj as Resource).resource_path != _current_path:
+		return
+	_current.set(prop, obj.get(prop))
+	_build_fields()
+
+
+# The file is saved; now make the copy everyone else already holds (scene nodes, the
+# Inspector) match it. take_over_path handed the path to the working copy instead,
+# which left those holders with an orphaned old copy their scene then saved embedded.
+func _sync_cached(saved: Resource, path: String) -> void:
+	if not ResourceLoader.has_cached(path):
+		saved.take_over_path(path)  # nobody holds it yet, so taking over is safe
+		return
+	var cached: Resource = ResourceLoader.load(path)
+	if cached == saved:
+		return
+	for p in saved.get_property_list():
+		var n: String = p.name
+		if (int(p.usage) & PROPERTY_USAGE_STORAGE) and n != "script" and n != "resource_path":
+			cached.set(n, saved.get(n))
+	cached.emit_changed()
+
+
+# A file written into a folder made this session isn't in the editor's file list
+# yet, so its UID stayed unknown and the first Play of a scene using it warned
+# "invalid UID" (a yellow Debugger badge). Register it the moment it's written.
+static func _register_uid(path: String) -> void:
+	var uid := ResourceLoader.get_resource_uid(path)
+	if uid != ResourceUID.INVALID_ID and not ResourceUID.has_id(uid):
+		ResourceUID.add_id(uid, path)
