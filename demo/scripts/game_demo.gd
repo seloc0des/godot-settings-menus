@@ -9,7 +9,6 @@ const MenuThemeScript := preload("res://addons/settings_menus/resources/menu_the
 
 var _player: ColorRect
 var _hint: Label
-var _fps_label: Label
 
 
 func _ready() -> void:
@@ -35,13 +34,6 @@ func _ready() -> void:
 	_hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.85))
 	add_child(_hint)
 
-	# FPS label (toggled via Settings).
-	_fps_label = Label.new()
-	_fps_label.position = Vector2(16, 80)
-	_fps_label.add_theme_font_size_override("font_size", 12)
-	_fps_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
-	add_child(_fps_label)
-
 	# Pause overlay.
 	var pause_ui: PauseMenuUI = PauseMenuUIScript.new()
 	var theme: MenuTheme = MenuThemeScript.new()
@@ -61,11 +53,3 @@ func _process(delta: float) -> void:
 	_player.position.x = clampf(_player.position.x + dx * 220.0 * delta, 0.0, 1180.0 - _player.size.x)
 	if Input.is_action_just_pressed("jump"):
 		_player.color = Color(randf_range(0.3, 1.0), randf_range(0.3, 1.0), randf_range(0.3, 1.0))
-
-	# FPS visibility from settings.
-	var settings := get_node_or_null("/root/Settings")
-	if settings != null:
-		var visible: bool = bool(settings.get_value("display.fps_visible", false))
-		_fps_label.visible = visible
-		if visible:
-			_fps_label.text = "FPS: %d" % int(Engine.get_frames_per_second())

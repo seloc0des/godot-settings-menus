@@ -47,6 +47,13 @@ func _ready() -> void:
 	await _run_quality_axes()
 	await _run_corrupt_settings_file()
 	await _run_save_debounce()
+	await _run_quit_follows_the_platform()
+	await _run_quit_asks_like_the_close_button()
+	await _run_credits_text_reaches_the_screen()
+	await _run_window_left_alone()
+	await _run_display_tab_in_a_browser()
+	_run_fps_counter()
+	await _run_colorblind_filter()
 	_assert(_snapshot_real_settings() == real_before,
 		"Sandbox: the real %s was left untouched" % SETTINGS_MANAGER.SAVE_FILE)
 	_cleanup_sandbox()
@@ -1162,6 +1169,255 @@ func _bus_restore(snap: Dictionary) -> void:
 	for e in fx.size():
 		AudioServer.add_bus_effect(i, fx[e][0], e)
 		AudioServer.set_bus_effect_enabled(i, e, bool(fx[e][1]))
+
+
+# ---- quitting, the window, credits, FPS and the colorblind filter ----------
+
+# Counts the close requests that reach it, the way Save/Load's save on quit hears one.
+class _CloseListener extends Node:
+	var heard := 0
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_WM_CLOSE_REQUEST:
+			heard += 1
+
+
+# A game's own "Really quit?": opens a dialog and adds a node while it is being told.
+class _ConfirmingListener extends Node:
+	var dialog := ConfirmationDialog.new()
+	var cancelled := 0
+	var added := false
+
+	func _ready() -> void:
+		add_child(dialog)
+		dialog.canceled.connect(func() -> void: cancelled += 1)
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_WM_CLOSE_REQUEST and dialog.is_inside_tree():
+			dialog.popup_centered()
+			var note := Node.new()
+			add_child(note)
+			added = note.get_parent() == self
+
+
+func _main_menu():
+	var menu = load("res://addons/settings_menus/ui/main_menu_ui.gd").new()
+	get_tree().root.add_child(menu)
+	await get_tree().process_frame
+	return menu
+
+
+func _pause_menu(show_quit: bool = true):
+	var menu = load("res://addons/settings_menus/ui/pause_menu_ui.gd").new()
+	menu.show_quit = show_quit
+	get_tree().root.add_child(menu)
+	await get_tree().process_frame
+	return menu
+
+
+func _run_quit_follows_the_platform() -> void:
+	SETTINGS_MANAGER.is_web = false
+	var main = await _main_menu()
+	var pause = await _pause_menu()
+	_assert(_button_with_text(main, "Quit") != null and _button_with_text(pause, "Quit to Desktop") != null,
+		"Quit: on desktop the main menu has Quit and the pause menu has Quit to Desktop")
+	main.queue_free()
+	pause.queue_free()
+	pause = await _pause_menu(false)
+	_assert(_button_with_text(pause, "Quit to Desktop") == null,
+		"Quit: the pause menu's Show Quit switch takes Quit to Desktop away")
+	pause.queue_free()
+
+	SETTINGS_MANAGER.is_web = true
+	main = await _main_menu()
+	pause = await _pause_menu()
+	_assert(_button_with_text(main, "Quit") == null and _button_with_text(pause, "Quit to Desktop") == null,
+		"Quit: in a browser neither menu offers Quit, which froze the page on its last frame")
+	_assert(_button_with_text(main, "Play") != null and _button_with_text(pause, "Resume") != null,
+		"Quit: and the rest of both menus is still there")
+	main.queue_free()
+	pause.queue_free()
+	SETTINGS_MANAGER.is_web = false
+	await get_tree().process_frame
+
+
+func _run_quit_asks_like_the_close_button() -> void:
+	var listener := _CloseListener.new()
+	get_tree().root.add_child(listener)
+	# Off, so the request is heard and nobody quits the suite. This is what
+	# Save/Load's save on quit does to the tree too.
+	var accept_before := get_tree().auto_accept_quit
+	get_tree().auto_accept_quit = false
+
+	var main = await _main_menu()
+	_button_with_text(main, "Quit").pressed.emit()
+	_assert(listener.heard == 1,
+		"Quit: the main menu's Quit sends the close request first, so a save on quit runs (heard %d)" % listener.heard)
+	var pause = await _pause_menu()
+	_button_with_text(pause, "Quit to Desktop").pressed.emit()
+	_assert(listener.heard == 2,
+		"Quit: and so does the pause menu's Quit to Desktop (heard %d)" % listener.heard)
+
+	SETTINGS_MANAGER.is_web = true
+	SETTINGS_MANAGER.quit_game(get_tree())
+	_assert(listener.heard == 2, "Quit: in a browser quit_game does nothing at all")
+	SETTINGS_MANAGER.is_web = false
+
+	# The way the close button tells the tree, which a "Really quit?" needs: the
+	# dialog itself is not told (it would cancel), and nothing is held busy.
+	var confirming := _ConfirmingListener.new()
+	get_tree().root.add_child(confirming)
+	await get_tree().process_frame
+	SETTINGS_MANAGER.quit_game(get_tree())
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_assert(confirming.dialog.visible and confirming.cancelled == 0,
+		"Quit: a game's own Really quit? dialog stays open (cancelled %d times)" % confirming.cancelled)
+	_assert(confirming.added, "Quit: and its handler can add a node while it is being told")
+	confirming.queue_free()
+
+	get_tree().auto_accept_quit = accept_before
+	main.queue_free()
+	pause.queue_free()
+	listener.queue_free()
+	await get_tree().process_frame
+
+
+func _run_credits_text_reaches_the_screen() -> void:
+	var main = await _main_menu()
+	_assert(main.credits_text == CreditsUI.PLACEHOLDER_TEXT,
+		"Credits: the main menu's Credits Text starts as the template's text, ready to edit in the Inspector")
+	main.queue_free()
+
+	main = load("res://addons/settings_menus/ui/main_menu_ui.gd").new()
+	main.credits_text = "# Team\nAda Example"
+	get_tree().root.add_child(main)
+	await get_tree().process_frame
+	_button_with_text(main, "Credits").pressed.emit()
+	await get_tree().process_frame
+	var shown := false
+	for l in main.find_children("*", "Label", true, false):
+		if (l as Label).text == "Ada Example" and (l as Label).is_visible_in_tree():
+			shown = true
+	_assert(shown, "Credits: what the main menu's Credits Text says is what the Credits screen shows")
+	main.queue_free()
+	await get_tree().process_frame
+
+
+func _run_window_left_alone() -> void:
+	var s := _settings_manager()
+	s.reset_to_defaults()
+	_assert(int(s.get_value("display.window_mode")) == -1 and int(s.get_value("display.resolution_index")) == -1,
+		"Display: a new player's window mode and size stay as the project opens them, not windowed at 1280x720")
+	var project_vsync := int(ProjectSettings.get_setting("display/window/vsync/vsync_mode", 1)) != DisplayServer.VSYNC_DISABLED
+	_assert(bool(s.get_value("display.vsync")) == project_vsync,
+		"Display: VSync starts as the project has it")
+
+	var menu = load("res://addons/settings_menus/ui/options_menu_ui.gd").new()
+	get_tree().root.add_child(menu)
+	await get_tree().process_frame
+	var res_row := _find_labeled_row(menu, "Resolution")
+	var res := res_row.get_child(1) as OptionButton if res_row != null else null
+	var own := SETTINGS_MANAGER.project_window_size()
+	_assert(res != null and res.selected == 0 and res.get_item_text(0) == "Default (%d × %d)" % [own.x, own.y],
+		"Display: Resolution starts on Default, the project's own size")
+	if res != null:
+		res.select(2)
+		res.item_selected.emit(2)
+		_assert(int(s.get_value("display.resolution_index")) == 1,
+			"Display: picking the third entry stores the second of Settings.RESOLUTIONS")
+	menu.queue_free()
+	await get_tree().process_frame
+
+	# A settings file from before 1.9.0 holds 0, which was 1280x720. It still is.
+	s._data["display.resolution_index"] = 0  # straight in, as a file would load it
+	menu = load("res://addons/settings_menus/ui/options_menu_ui.gd").new()
+	get_tree().root.add_child(menu)
+	await get_tree().process_frame
+	res_row = _find_labeled_row(menu, "Resolution")
+	res = res_row.get_child(1) as OptionButton if res_row != null else null
+	_assert(res != null and res.get_item_text(res.selected) == "1280 × 720",
+		"Display: a resolution saved by an older version still shows as the one it was")
+	menu.queue_free()
+	await get_tree().process_frame
+	s.reset_to_defaults()
+
+
+func _run_display_tab_in_a_browser() -> void:
+	SETTINGS_MANAGER.is_web = true
+	var menu = load("res://addons/settings_menus/ui/options_menu_ui.gd").new()
+	get_tree().root.add_child(menu)
+	await get_tree().process_frame
+	_assert(_find_labeled_row(menu, "Window Mode") == null and _find_labeled_row(menu, "Resolution") == null
+		and _find_labeled_row(menu, "VSync") == null,
+		"Display: in a browser there are no Window Mode, Resolution or VSync rows, which the page ignores")
+	_assert(_find_labeled_row(menu, "Show FPS") != null, "Display: and Show FPS is still there")
+	menu.queue_free()
+	SETTINGS_MANAGER.is_web = false
+	await get_tree().process_frame
+
+
+func _run_fps_counter() -> void:
+	var s := _settings_manager()
+	s.set_value("display.fps_visible", true)
+	var layer := s.get_node_or_null("SettingsFpsCounter") as CanvasLayer
+	var label := layer.find_children("*", "Label", true, false)[0] as Label if layer != null else null
+	_assert(layer != null and layer.visible and label != null and label.text.begins_with("FPS: "),
+		"FPS: ticking Show FPS puts a counter on screen in any game, not just the demo")
+	_assert(layer != null and layer.process_mode == Node.PROCESS_MODE_ALWAYS and label != null and label.mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"FPS: it keeps counting while paused and never takes a click")
+	s.set_value("display.fps_visible", false)
+	_assert(layer != null and not layer.visible, "FPS: unticking it takes the counter away")
+
+	s.set_value("display.fps_visible", true)
+	s.draw_fps_counter = false
+	_assert(layer != null and not layer.visible, "FPS: a game that draws its own can switch this one off, even with Show FPS already ticked")
+	s.set_value("display.fps_visible", false)
+	s.set_value("display.fps_visible", true)
+	_assert(layer != null and not layer.visible, "FPS: and it stays off when the player ticks Show FPS again")
+	s.draw_fps_counter = true
+	s.set_value("display.fps_visible", false)
+
+
+func _run_colorblind_filter() -> void:
+	var s := _settings_manager()
+	s.set_value("a11y.colorblind_filter", "deuteranopia")
+	var layer := s.get_node_or_null("SettingsColorblindFilter") as CanvasLayer
+	var rect := layer.get_child(0) as ColorRect if layer != null else null
+	var mat := rect.material as ShaderMaterial if rect != null else null
+	_assert(layer != null and layer.visible and mat != null and int(mat.get_shader_parameter("mode")) == 2,
+		"Colorblind: picking Deuteranopia puts the filter over the screen, set to deuteranopia")
+	_assert(rect != null and rect.mouse_filter == Control.MOUSE_FILTER_IGNORE,
+		"Colorblind: the filter lets every click through to the game")
+	# Godot draws popups and dropdown lists on layer 1024; under it they stay uncorrected.
+	_assert(layer != null and layer.layer > 1024,
+		"Colorblind: the filter sits over popups and dropdown lists too (layer %d)" % (layer.layer if layer else 0))
+	s.set_value("display.fps_visible", true)
+	var fps := s.get_node_or_null("SettingsFpsCounter") as CanvasLayer
+	_assert(fps != null and layer != null and fps.layer > layer.layer,
+		"Colorblind: and the FPS counter sits over the filter, so it reads as it is")
+	s.set_value("display.fps_visible", false)
+	var vp := s.get_viewport()
+	var hdr_before := vp.use_hdr_2d
+	vp.use_hdr_2d = not hdr_before
+	await get_tree().process_frame
+	var linear := vp.use_hdr_2d and RenderingServer.get_current_rendering_method() != "gl_compatibility"
+	_assert(mat != null and bool(mat.get_shader_parameter("hdr_linear")) == linear,
+		"Colorblind: the filter follows HDR 2D being switched while the game runs, which Compatibility ignores")
+	vp.use_hdr_2d = hdr_before
+	await get_tree().process_frame
+	s.set_value("a11y.colorblind_filter", "tritanopia")
+	_assert(mat != null and int(mat.get_shader_parameter("mode")) == 3, "Colorblind: and switches to tritanopia when that is picked")
+	s.set_value("a11y.colorblind_filter", "none")
+	_assert(layer != null and not layer.visible, "Colorblind: None takes the filter off")
+
+	s.set_value("a11y.colorblind_filter", "protanopia")
+	s.draw_colorblind_filter = false
+	_assert(layer != null and not layer.visible, "Colorblind: a game that applies its own filter can switch this one off, even with one already picked")
+	s.set_value("a11y.colorblind_filter", "deuteranopia")
+	_assert(layer != null and not layer.visible, "Colorblind: and it stays off when the player picks another")
+	s.draw_colorblind_filter = true
+	s.set_value("a11y.colorblind_filter", "none")
 
 
 # Settings is looked up when used instead of named. A script that names an autoload

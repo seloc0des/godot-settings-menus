@@ -150,40 +150,10 @@ func _build_display_tab() -> Control:
 	_add_padding(tab)
 	if settings == null:
 		return tab  # nothing to bind to; leave the tab empty rather than crash
-
-	# Window mode.
-	var mode_row := _row(tab, "Window Mode")
-	var mode_opt := OptionButton.new()
-	for label in ["Windowed", "Fullscreen", "Borderless"]:
-		mode_opt.add_item(label)
-	mode_opt.selected = int(settings.get_value("display.window_mode", 0))
-	mode_opt.item_selected.connect(func(idx):
-		var s := _settings()
-		if s != null:
-			s.set_value("display.window_mode", idx))
-	mode_row.add_child(mode_opt)
-
-	# Resolution.
-	var res_row := _row(tab, "Resolution")
-	var res_opt := OptionButton.new()
-	for r in settings.RESOLUTIONS:
-		res_opt.add_item("%d × %d" % [r.x, r.y])
-	res_opt.selected = int(settings.get_value("display.resolution_index", 0))
-	res_opt.item_selected.connect(func(idx):
-		var s := _settings()
-		if s != null:
-			s.set_value("display.resolution_index", idx))
-	res_row.add_child(res_opt)
-
-	# VSync.
-	var vsync_row := _row(tab, "VSync")
-	var vsync_cb := CheckBox.new()
-	vsync_cb.button_pressed = bool(settings.get_value("display.vsync", true))
-	vsync_cb.toggled.connect(func(p):
-		var s := _settings()
-		if s != null:
-			s.set_value("display.vsync", p))
-	vsync_row.add_child(vsync_cb)
+	# In a browser the page sets all three, so the rows would be controls that do
+	# nothing. Show FPS still works there.
+	if SETTINGS_MANAGER.has_window_controls():
+		_add_window_rows(tab, settings)
 
 	# FPS counter.
 	var fps_row := _row(tab, "Show FPS")
@@ -196,6 +166,45 @@ func _build_display_tab() -> Control:
 	fps_row.add_child(fps_cb)
 
 	return tab
+
+
+func _add_window_rows(tab: VBoxContainer, settings: Node) -> void:
+	# Window mode.
+	var mode_row := _row(tab, "Window Mode")
+	var mode_opt := OptionButton.new()
+	for label in ["Windowed", "Fullscreen", "Borderless"]:
+		mode_opt.add_item(label)
+	mode_opt.selected = settings.get_window_mode_shown()
+	mode_opt.item_selected.connect(func(idx):
+		var s := _settings()
+		if s != null:
+			s.set_value("display.window_mode", idx))
+	mode_row.add_child(mode_opt)
+
+	# Resolution. The first entry is the project's own size, which is where every
+	# player starts; the rest are Settings.RESOLUTIONS, one item further down.
+	var res_row := _row(tab, "Resolution")
+	var res_opt := OptionButton.new()
+	var own: Vector2i = SETTINGS_MANAGER.project_window_size()
+	res_opt.add_item("Default (%d × %d)" % [own.x, own.y])
+	for r in settings.RESOLUTIONS:
+		res_opt.add_item("%d × %d" % [r.x, r.y])
+	res_opt.selected = clampi(int(settings.get_value("display.resolution_index", -1)), -1, settings.RESOLUTIONS.size() - 1) + 1
+	res_opt.item_selected.connect(func(idx):
+		var s := _settings()
+		if s != null:
+			s.set_value("display.resolution_index", idx - 1))
+	res_row.add_child(res_opt)
+
+	# VSync.
+	var vsync_row := _row(tab, "VSync")
+	var vsync_cb := CheckBox.new()
+	vsync_cb.button_pressed = bool(settings.get_value("display.vsync", true))
+	vsync_cb.toggled.connect(func(p):
+		var s := _settings()
+		if s != null:
+			s.set_value("display.vsync", p))
+	vsync_row.add_child(vsync_cb)
 
 
 # ---- tab: controls -------------------------------------------------------

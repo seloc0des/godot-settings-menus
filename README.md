@@ -27,9 +27,9 @@ See [docs/quick-start.md](docs/quick-start.md) for the worked example.
 
 ## Features
 
-- `MainMenuUI`: Play / Options / Credits / Quit, configurable scene path.
-- `PauseMenuUI`: listens for the `pause` action and pauses the tree. Resume / Options / Main Menu / Quit.
-- `OptionsMenuUI`: tabbed. Audio (master / music / sfx buses), Display (window mode + resolution + vsync + fps counter), Controls (one-click key rebind for any project action), Accessibility (font scale, colorblind filter, reduce motion, and a toggle each for camera shake, motion blur, chromatic aberration, film grain and depth of field).
+- `MainMenuUI`: Play / Options / Credits / Quit, configurable scene path. Type your credits into its **Credits Text** in the Inspector.
+- `PauseMenuUI`: listens for the `pause` action and pauses the tree. Resume / Options / Main Menu / Quit to Desktop.
+- `OptionsMenuUI`: tabbed. Audio (master / music / sfx buses), Display (window mode + resolution + vsync + an FPS counter the pack draws for you), Controls (one-click key rebind for any project action), Accessibility (font scale, a colorblind filter drawn over the whole screen, reduce motion, and a toggle each for camera shake, motion blur, chromatic aberration, film grain and depth of field).
 - `CreditsUI`: scrolling credits authored as a single multiline string with `#` headings.
 - `KeyRebindRow`: drop-in row for one rebindable action, with its keyboard and mouse binding and its gamepad binding rebound separately. Used by the Controls tab, and reusable in your own UIs.
 - `MenuTheme` Resource: recolor every menu in one swap. Brand title + subtitle + background.
@@ -37,10 +37,13 @@ See [docs/quick-start.md](docs/quick-start.md) for the worked example.
 - Per-feature quality: a Graphics tab with shadows, textures, effects, view distance and post processing set separately, not one preset slider. Appears only when something is installed that can act on it.
 - Effect toggles: `Settings.is_effect_enabled("film_grain")` and the `effects_changed` signal. Reduce Motion switches camera shake and motion blur off without forgetting how the player had them set. This pack decides, your game applies.
 - Key rebinding persisted as serialized events. Keys, mouse buttons, and gamepad buttons, triggers and sticks supported.
+- Leaves your window alone: it opens the way your project sets it up until the player picks a window mode, size or VSync setting.
+- Web builds work: neither menu offers Quit, because a browser page can't close itself, and the Display tab shows only Show FPS, since the browser owns the page's size, fullscreen and frame sync. iOS gets no Quit either, as players close apps themselves there.
+- Quit closes the game the way the window's close button does, so Save/Load's Save on quit, or your own "Really quit?" dialog, gets to run first.
 
 ## Status
 
-v1.8.1. Tested against Godot 4.5+ (verified on 4.5 and 4.7). Pure GDScript. MIT licensed.
+v1.9.0. Tested against Godot 4.5+ (verified on 4.5 and 4.7). Pure GDScript. MIT licensed.
 
 ## License
 

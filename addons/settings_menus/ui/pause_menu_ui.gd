@@ -13,6 +13,9 @@ signal quit_pressed
 @export var pause_action: String = "pause"
 @export_file("*.tscn") var main_menu_scene_path: String = ""
 @export var listen_for_pause_action: bool = true
+## Quit to Desktop is left out in a browser and on iOS whatever this says: a web
+## page can't close itself, and on iOS the player closes apps.
+@export var show_quit: bool = true
 
 var _panel: PanelContainer
 var _options: OptionsMenuUI
@@ -108,7 +111,8 @@ func _build() -> void:
 	_first_button = _add_button(col, "Resume", resume)
 	_add_button(col, "Options", _open_options)
 	_add_button(col, "Main Menu", _main_menu)
-	_add_button(col, "Quit to Desktop", _quit)
+	if show_quit and SETTINGS_MANAGER.can_quit():
+		_add_button(col, "Quit to Desktop", _quit)
 
 
 func _add_button(parent: Container, text: String, cb: Callable) -> Button:
@@ -158,4 +162,9 @@ func _main_menu() -> void:
 
 func _quit() -> void:
 	quit_pressed.emit()
-	get_tree().quit()
+	SETTINGS_MANAGER.quit_game(get_tree())
+
+
+# Reached through its script, the way OptionsMenuUI does: a script that names the
+# Settings autoload won't compile until the plugin that adds it is switched on.
+const SETTINGS_MANAGER := preload("res://addons/settings_menus/settings_manager.gd")

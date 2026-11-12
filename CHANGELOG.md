@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.9.0 (2026-10-16)
+
+Menus that work in a browser, a window that stays the size you made it, and two settings that
+finally do something on their own.
+
+- **Quit no longer freezes a web game.** In a browser, Quit stopped the game and left its last frame
+  on the page until the player reloaded. Neither menu offers Quit in a web build now, or on iOS,
+  where players close apps themselves. The pause menu gained a **Show Quit** switch to match the
+  main menu's.
+- **Quit saves first.** The Quit buttons closed the game without telling anything, so Save/Load's
+  Save on quit never ran from them, and neither did a "Really quit?" dialog of your own. They close
+  the game the way the window's close button does now, and whatever was waiting for that runs
+  first, and a "Really quit?" dialog stays open for the player to answer.
+- **The window opens the way your project sets it up.** On a player's first launch the pack resized
+  every game to a 1280 x 720 window, which shrank a 1080p game and turned a portrait one sideways.
+  Window mode, size and VSync are left as your project has them until the player picks something.
+  Resolution has a Default entry, your project's own size, at the top of its list, and picking it
+  puts the window back to that size. A player who already has a settings file keeps the window they
+  had, since the file can't tell a choice from the old default.
+- **No dead controls on the web.** A browser decides the page's size, refuses fullscreen unless the
+  player has just clicked, and syncs frames itself, so Window Mode, Resolution and VSync did
+  nothing there, and a saved Fullscreen was refused at every page load. A web build's Display tab
+  shows Show FPS only, and the pack leaves the browser's window alone.
+- **Show FPS shows the FPS.** It only stored the choice, and only the demo drew a counter, so in
+  your game the box did nothing. The pack draws the counter now, top left, and it keeps counting
+  while the game is paused.
+- **The colorblind filter colours the screen.** It only stored the choice too. Protanopia,
+  Deuteranopia and Tritanopia now shift the colours a player with that kind of colour blindness
+  can't tell apart into ones they can, over the whole screen, menus and open dropdown lists
+  included. It works with HDR 2D on, glow and all. Clicks go straight through it. If your game already applies its own filter or draws its own counter, set
+  `Settings.draw_colorblind_filter` or `Settings.draw_fps_counter` to false.
+- **Your credits on the Credits screen.** The main menu built the Credits screen itself and gave
+  you no way to change its text short of editing the add-on. Select the `MainMenuUI` and type your
+  credits into **Credits Text** in the Inspector. A line starting with `# ` is a heading.
+- **Show FPS leaves your window alone.** Ticking it re-applied the display settings, which snapped a
+  window you had dragged to a new size back to the saved one.
+
 ## 1.8.2 (2026-10-12)
 
 The tabs show their names on Godot 4.5.

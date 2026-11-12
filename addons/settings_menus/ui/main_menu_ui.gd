@@ -17,7 +17,13 @@ signal quit_pressed
 
 @export var show_credits: bool = true
 @export var show_options: bool = true
+## Quit is left out in a browser and on iOS whatever this says: a web page can't
+## close itself, and on iOS the player closes apps.
 @export var show_quit: bool = true
+
+## What the Credits screen says. A line starting with "# " is a heading, the rest is
+## body text. Change it before you ship: it starts as the template's placeholder.
+@export_multiline var credits_text: String = CreditsUI.PLACEHOLDER_TEXT
 
 var _options_layer: CanvasLayer
 var _credits_layer: CanvasLayer
@@ -112,7 +118,7 @@ func _build() -> void:
 		_add_button(col, "Options", _open_options)
 	if show_credits:
 		_add_button(col, "Credits", _open_credits)
-	if show_quit:
+	if show_quit and SETTINGS_MANAGER.can_quit():
 		_add_button(col, "Quit", _on_quit)
 
 
@@ -159,7 +165,7 @@ func _on_play() -> void:
 
 func _on_quit() -> void:
 	quit_pressed.emit()
-	get_tree().quit()
+	SETTINGS_MANAGER.quit_game(get_tree())
 
 
 func _open_options() -> void:
@@ -194,6 +200,7 @@ func _open_credits() -> void:
 		add_child(_credits_layer)
 		_credits_ui = CreditsUI.new()
 		_credits_ui.theme_data = theme_data
+		_credits_ui.credits_text = credits_text
 		_credits_ui.close_requested.connect(_close_credits)
 		_credits_layer.add_child(_credits_ui)
 	_credits_layer.visible = true
@@ -216,3 +223,8 @@ func _restore_focus() -> void:
 	elif _first_button != null:
 		_first_button.grab_focus()
 	_focus_return = null
+
+
+# Reached through its script, the way OptionsMenuUI does: a script that names the
+# Settings autoload won't compile until the plugin that adds it is switched on.
+const SETTINGS_MANAGER := preload("res://addons/settings_menus/settings_manager.gd")

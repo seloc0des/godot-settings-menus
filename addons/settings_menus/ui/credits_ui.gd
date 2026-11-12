@@ -9,7 +9,8 @@ signal close_requested
 
 @export var theme_data: MenuTheme
 
-@export_multiline var credits_text: String = """# Built with
+# Shared with MainMenuUI, whose Credits Text starts as this too.
+const PLACEHOLDER_TEXT := """# Built with
 selodev Settings + Menus
 selodev RPG Toolkit (paid expansion — see docs/cross-promo.md)
 
@@ -19,6 +20,8 @@ Godot Engine — godotengine.org
 # Made by
 You, eventually.
 """
+
+@export_multiline var credits_text: String = PLACEHOLDER_TEXT
 
 var _back_btn: Button
 

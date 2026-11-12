@@ -47,9 +47,13 @@ var _defaults: Dictionary = {
 	"audio.dialogue": 1.0,
 	"audio.ui": 1.0,
 	"audio.ambience": 1.0,
-	"display.window_mode": 0,        # 0 windowed, 1 fullscreen, 2 borderless
-	"display.resolution_index": 0,   # index into Settings.RESOLUTIONS
-	"display.vsync": true,
+	# -1 for both: the window opens the way the project sets it up, until the player
+	# picks something. Defaults of windowed and 1280x720 resized every game on its
+	# first launch, a portrait one into landscape.
+	"display.window_mode": -1,       # -1 as the project opens, 0 windowed, 1 fullscreen, 2 borderless
+	"display.resolution_index": -1,  # -1 the project's own size, else an index into Settings.RESOLUTIONS
+	# As the project has it, so turning this pack on doesn't switch VSync on or off.
+	"display.vsync": int(ProjectSettings.get_setting("display/window/vsync/vsync_mode", 1)) != DisplayServer.VSYNC_DISABLED,
 	"display.fps_visible": false,
 	"a11y.font_scale": 1.0,
 	"a11y.colorblind_filter": "none",  # none | protanopia | deuteranopia | tritanopia
@@ -122,6 +126,31 @@ var rebindable_actions: PackedStringArray = PackedStringArray([
 ## purpose, and counting them meant jump could never go back to Space.
 var menu_navigation_clashes: bool = false
 
+## Show FPS draws its counter in the top left corner. Turn this off if your game draws
+## its own, and read display.fps_visible to show it. Takes effect straight away.
+var draw_fps_counter: bool = true:
+	set(value):
+		draw_fps_counter = value
+		if is_node_ready():
+			_apply_fps_counter()
+
+## The colorblind filter is drawn over the whole screen, menus included. Turn this off
+## if your game applies its own, or colours get corrected twice. Takes effect straight away.
+var draw_colorblind_filter: bool = true:
+	set(value):
+		draw_colorblind_filter = value
+		if is_node_ready():
+			_apply_colorblind_filter()
+
+## True in a browser build. Kept in a variable so the self-test can build the menus
+## the way a browser shows them.
+static var is_web: bool = OS.has_feature("web")
+
+# True while quit_game is telling the tree, so a handler that calls it again quits.
+static var _quitting := false
+
+const COLORBLIND_SHADER := preload("res://addons/settings_menus/shaders/colorblind.gdshader")
+
 var _data: Dictionary = {}
 var _captured_default_binds: Dictionary = {}
 var _last_effects: Dictionary = {}
@@ -134,11 +163,22 @@ const SAVE_DEBOUNCE_SECONDS := 0.35
 var _save_timer: Timer
 var _save_pending: bool = false
 
+var _fps_layer: CanvasLayer
+var _fps_label: Label
+var _fps_timer: Timer
+var _colorblind_layer: CanvasLayer
+var _colorblind_material: ShaderMaterial
+# Only while _ready applies the saved settings. A saved size un-maximizes the window
+# then, and when the player picks one, but not on every later display change.
+var _launching := false
+
 
 func _ready() -> void:
 	_capture_default_binds()
 	load_settings()
+	_launching = true
 	apply_all()
+	_launching = false
 	# An audio pack listed after this one makes its Dialogue, UI and Ambience buses
 	# in its own _ready, so the saved levels get a second pass once everyone's up.
 	call_deferred("apply_audio")
@@ -294,6 +334,44 @@ func _recover_interrupted_write() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
 
 
+# ---- quitting -------------------------------------------------------------
+
+## Can the game close itself here? Not in a browser: quit() stops the engine and
+## leaves its last frame frozen on the page until the player reloads. Not on iOS
+## either, where the player closes apps and quit() does nothing.
+static func can_quit() -> bool:
+	return not (is_web or OS.has_feature("ios"))
+
+
+## Close the game the way the window's close button does. Everything listening for
+## the close request hears it first: Save/Load's save on quit, a "Really quit?"
+## dialog, this pack's own pending save. quit() on its own skipped all of them, so
+## a Quit button never saved. Whoever switched auto-accept off does the quitting.
+static func quit_game(tree: SceneTree) -> void:
+	if not can_quit():
+		return
+	# Asked again from inside a close handler: everyone has heard it, so this is
+	# the handler saying it is done. Going round again never ends.
+	if _quitting:
+		tree.quit()
+		return
+	_quitting = true
+	_tell_closing(tree.root)
+	_quitting = false
+	if tree.auto_accept_quit:
+		tree.quit()
+
+
+# The way the engine tells the tree when the window's close button is pressed. Not
+# propagate_notification: that reached a "Really quit?" dialog too, which cancelled
+# itself, and held every node busy so a handler couldn't add one.
+static func _tell_closing(node: Node) -> void:
+	node.notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	for child in node.get_children(true):
+		if not child is Window:
+			_tell_closing(child)
+
+
 # ---- audio ----------------------------------------------------------------
 
 ## The three that every project has, then the three that only exist if an audio
@@ -353,9 +431,21 @@ func _apply_audio_one(bus_key: String) -> void:
 
 # ---- display --------------------------------------------------------------
 
-func apply_display() -> void:
-	# Window mode
-	var mode: int = int(get_value("display.window_mode", 0))
+## Can the game set its own window mode, size and VSync here? Not in a browser. The
+## page is the browser's: it refuses fullscreen unless the player has just clicked
+## or pressed a key, ignores a window size, and syncs frames itself.
+static func has_window_controls() -> bool:
+	return not is_web
+
+
+## size_picked: the player just chose a Resolution entry. Picking Default puts the
+## window back to the project's size then, where at launch Default leaves it alone.
+func apply_display(size_picked: bool = false) -> void:
+	if not has_window_controls():
+		return
+	# Window mode. -1 leaves it as the project opened it.
+	var mode: int = int(get_value("display.window_mode", -1))
+	var idx: int = int(get_value("display.resolution_index", -1))
 	match mode:
 		0:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
@@ -365,21 +455,95 @@ func apply_display() -> void:
 		2:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, true)
+		_:
+			# A project that opens maximized has no size to set until it isn't. Only for a
+			# size the player chose, now or before this launch: toggling VSync must not
+			# pull a window they maximized by hand back down.
+			var size_wanted := size_picked or (_launching and idx >= 0)
+			if size_wanted and DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MAXIMIZED:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 	# Defer size + vsync to the next frame. Window mode changes are processed
 	# asynchronously by the platform window manager; setting size/vsync in the
 	# same frame can race the mode change and leave the window at the wrong
 	# size or with the wrong vsync after a fullscreen→windowed swap.
-	call_deferred("_apply_display_post_mode", mode)
+	call_deferred("_apply_display_post_mode", mode, size_picked)
 
 
-func _apply_display_post_mode(mode: int) -> void:
-	if mode == 0 or mode == 2:
-		var idx: int = clampi(int(get_value("display.resolution_index", 0)), 0, RESOLUTIONS.size() - 1)
-		var size: Vector2i = RESOLUTIONS[idx]
-		DisplayServer.window_set_size(size)
+func _apply_display_post_mode(mode: int, size_picked: bool = false) -> void:
+	var now := DisplayServer.window_get_mode()
+	var fullscreen := now == DisplayServer.WINDOW_MODE_FULLSCREEN or now == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+	var windowed := mode == 0 or mode == 2 or (mode < 0 and not fullscreen)
+	var idx: int = int(get_value("display.resolution_index", -1))
+	if windowed and idx >= 0:
+		DisplayServer.window_set_size(RESOLUTIONS[mini(idx, RESOLUTIONS.size() - 1)])
+	elif windowed and size_picked:
+		DisplayServer.window_set_size(project_window_size())
+	# Only when it differs, so a project on adaptive or mailbox VSync keeps it.
 	var vsync: bool = bool(get_value("display.vsync", true))
-	DisplayServer.window_set_vsync_mode(
-		DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
+	var vsync_on := DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED
+	if vsync != vsync_on:
+		DisplayServer.window_set_vsync_mode(
+			DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
+
+
+## The window mode as the Display tab should show it: what the player picked, or,
+## before they pick, what the window is actually doing.
+func get_window_mode_shown() -> int:
+	var mode: int = int(get_value("display.window_mode", -1))
+	if mode >= 0:
+		return mode
+	match DisplayServer.window_get_mode():
+		DisplayServer.WINDOW_MODE_FULLSCREEN, DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
+			return 1
+	if DisplayServer.window_get_flag(DisplayServer.WINDOW_FLAG_BORDERLESS):
+		return 2
+	return 0
+
+
+## The project's own window size, for the Resolution list's first entry.
+static func project_window_size() -> Vector2i:
+	var w := int(ProjectSettings.get_setting("display/window/size/window_width_override", 0))
+	var h := int(ProjectSettings.get_setting("display/window/size/window_height_override", 0))
+	if w <= 0 or h <= 0:
+		w = int(ProjectSettings.get_setting("display/window/size/viewport_width", 1152))
+		h = int(ProjectSettings.get_setting("display/window/size/viewport_height", 648))
+	return Vector2i(w, h)
+
+
+# ---- FPS counter ----------------------------------------------------------
+
+func _apply_fps_counter() -> void:
+	var show := draw_fps_counter and bool(get_value("display.fps_visible", false))
+	if show and _fps_layer == null:
+		_fps_layer = CanvasLayer.new()
+		_fps_layer.name = "SettingsFpsCounter"
+		_fps_layer.layer = 1026  # over everything, the colorblind filter included
+		_fps_layer.process_mode = Node.PROCESS_MODE_ALWAYS  # keeps counting while paused
+		_fps_label = Label.new()
+		_fps_label.position = Vector2(8, 6)
+		_fps_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_fps_label.add_theme_font_size_override("font_size", 14)
+		_fps_label.add_theme_color_override("font_outline_color", Color.BLACK)
+		_fps_label.add_theme_constant_override("outline_size", 4)
+		_fps_layer.add_child(_fps_label)
+		_fps_timer = Timer.new()
+		_fps_timer.wait_time = 0.5
+		_fps_timer.timeout.connect(_update_fps_counter)
+		_fps_layer.add_child(_fps_timer)
+		add_child(_fps_layer)
+	if _fps_layer == null:
+		return
+	_fps_layer.visible = show
+	if show:
+		_update_fps_counter()
+		if _fps_timer.is_inside_tree():
+			_fps_timer.start()
+	else:
+		_fps_timer.stop()
+
+
+func _update_fps_counter() -> void:
+	_fps_label.text = "FPS: %d" % int(Engine.get_frames_per_second())
 
 
 # ---- accessibility --------------------------------------------------------
@@ -392,6 +556,7 @@ func apply_accessibility() -> void:
 	# Reduce motion is not theme-level. It gates the motion effects, so applying
 	# accessibility has to re-publish those.
 	apply_effects()
+	_apply_colorblind_filter()
 
 
 func get_font_scale() -> float:
@@ -400,6 +565,49 @@ func get_font_scale() -> float:
 
 func get_colorblind_filter() -> String:
 	return String(get_value("a11y.colorblind_filter", "none"))
+
+
+# The filter used to be a stored choice and nothing more, so picking one changed
+# nothing on screen unless the game had written its own. It is drawn here now, one
+# layer under the FPS counter so the counter stays readable.
+func _apply_colorblind_filter() -> void:
+	var mode := COLORBLIND_FILTERS.find(get_colorblind_filter())
+	var on := draw_colorblind_filter and mode > 0
+	if on and _colorblind_layer == null:
+		_colorblind_layer = CanvasLayer.new()
+		_colorblind_layer.name = "SettingsColorblindFilter"
+		# Over the layer Godot draws popups and dropdown lists on (1024). At 127 an open
+		# Options dropdown was left uncorrected.
+		_colorblind_layer.layer = 1025
+		var rect := ColorRect.new()
+		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE  # clicks go through to the game
+		_colorblind_material = ShaderMaterial.new()
+		_colorblind_material.shader = COLORBLIND_SHADER
+		rect.material = _colorblind_material
+		_colorblind_layer.add_child(rect)
+		add_child(_colorblind_layer)
+	if _colorblind_layer == null:
+		return
+	_colorblind_layer.visible = on
+	if on:
+		_colorblind_material.set_shader_parameter("mode", mode)
+		_sync_filter_hdr()
+	# A game can switch HDR 2D while it runs, so the filter checks each frame it is on.
+	var watching := get_tree().process_frame.is_connected(_sync_filter_hdr)
+	if on and not watching:
+		get_tree().process_frame.connect(_sync_filter_hdr)
+	elif not on and watching:
+		get_tree().process_frame.disconnect(_sync_filter_hdr)
+
+
+func _sync_filter_hdr() -> void:
+	# Compatibility ignores HDR 2D and keeps the screen in sRGB (checked on 4.5 and 4.7),
+	# so only Forward+ and Mobile hand the filter linear light.
+	var hdr := get_viewport().use_hdr_2d and RenderingServer.get_current_rendering_method() != "gl_compatibility"
+	var told: Variant = _colorblind_material.get_shader_parameter("hdr_linear")  # null until first set
+	if typeof(told) != TYPE_BOOL or told != hdr:
+		_colorblind_material.set_shader_parameter("hdr_linear", hdr)
 
 
 # ---- quality --------------------------------------------------------------
@@ -634,6 +842,7 @@ func _restore_default_binds() -> void:
 func apply_all() -> void:
 	apply_audio()
 	apply_display()
+	_apply_fps_counter()
 	apply_accessibility()
 	apply_quality()
 	apply_keybinds()
@@ -643,8 +852,12 @@ func _apply_one(key: String, _value) -> void:
 	if key.begins_with("audio."):
 		var bus := key.substr(6)
 		_apply_audio_one(bus)
+	elif key == "display.fps_visible":
+		# Not apply_display: that snapped a window the player had dragged to a new
+		# size back to the saved one.
+		_apply_fps_counter()
 	elif key.begins_with("display."):
-		apply_display()
+		apply_display(key == "display.resolution_index")
 	elif key.begins_with("a11y."):
 		apply_accessibility()
 	elif key.begins_with("fx."):

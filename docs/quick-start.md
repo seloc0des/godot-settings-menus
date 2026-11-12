@@ -13,6 +13,8 @@ The main menu and options screen are set to fill the screen. With **All three**,
 options screen starts hidden so the main menu shows first. The main and pause menus
 open their own Options. Re-pick and Apply any time, and it updates in place instead
 of duplicating. Restyle everything at once from the sibling **Menu Theme** tab.
+To put your own names on the Credits screen, select the `MainMenuUI` and type them
+into **Credits Text** in the Inspector. A line starting with `# ` is a heading.
 
 The steps below are the manual route if you'd rather build it by hand or understand
 each piece.
@@ -104,6 +106,17 @@ Depth of field is a Godot property. Film grain and chromatic aberration are not:
 
 The keys are `fx.camera_shake`, `fx.motion_blur`, `fx.chromatic_aberration`, `fx.film_grain` and `fx.depth_of_field`, all on by default so installing this pack does not change how your game looks.
 
+Two settings this pack applies itself. **Show FPS** draws a counter in the top left corner, and **Colorblind Filter** colours the whole screen, menus included, so a player with that kind of colour blindness can tell apart the colours they would otherwise mix up. Clicks go straight through the filter. If your game already draws its own counter or applies its own filter, switch the pack's off, or the player gets two:
+
+```gdscript
+# In your game's bootstrap autoload, for example:
+func _ready() -> void:
+    Settings.draw_fps_counter = false        # then read display.fps_visible yourself
+    Settings.draw_colorblind_filter = false  # then read Settings.get_colorblind_filter()
+```
+
+The window opens the way your project sets it up (Project Settings, Display, Window) until the player picks a window mode, a resolution or VSync in the Display tab. The first Resolution entry, Default, is your project's own size.
+
 Settings land in `user://settings.json`. They keep their own file on purpose, because settings belong to the player rather than to a save slot, so deleting every slot leaves them intact. Point them somewhere else with `Settings.save_file`, which is useful for per-profile settings and for tests that shouldn't stomp your real ones:
 
 ```gdscript
@@ -145,6 +158,12 @@ A binding another of your actions already uses is refused, and the button says w
 ```gdscript
 Settings.menu_navigation_clashes = true
 ```
+
+## 7. Web and iOS builds
+
+In a browser, neither menu offers Quit: a web page can't close itself, and stopping the game would leave its last frame frozen on the page. iOS works the same way, since players close apps themselves. The Display tab shows only Show FPS in a browser, because the browser owns the page's size, fullscreen and frame sync. There is nothing to set up for either.
+
+Everywhere else, Quit closes the game the way the window's close button does. Anything listening for that close request runs first, such as Save/Load's Save on quit or a "Really quit?" dialog of your own. To leave Quit out of a desktop build too, untick **Show Quit** on the `MainMenuUI` or the `PauseMenuUI`.
 
 ## What's next
 
