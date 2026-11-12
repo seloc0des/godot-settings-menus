@@ -1,14 +1,7 @@
-# Normalize line endings
+# Normalize line endings for all files that Git considers text files.
 * text=auto eol=lf
 
-# Keep the Asset Library download addon-only: exclude demo/dev files from `git archive`.
-# (Install is still "copy addons/<name>/" — see README.)
-/demo export-ignore
-/docs export-ignore
-/tools export-ignore
-/marketing export-ignore
-/project.godot export-ignore
-/icon.png export-ignore
-/CHANGELOG.md export-ignore
-/.gitignore export-ignore
-/.gitattributes export-ignore
+# Only the addons folder goes into an Asset Library download.
+/**        export-ignore
+/addons    !export-ignore
+/addons/** !export-ignore
